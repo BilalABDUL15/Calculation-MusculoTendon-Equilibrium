@@ -161,10 +161,13 @@ def main():
             results["tendon_length"],
             "cm",
         )
+        print(
+            f"\nVerification of the equation of De Groote : Musculotendon length: {results["musculotendon_length"]} ?= Tendon_length: {results["tendon_length"]} + Muscle_length * cos(pennation): {results["muscle_length"] * np.cos(pennation)} ",
+            results["musculotendon_length"] == results["muscle_length"] * np.cos(pennation) + results["tendon_length"],
+        )
 
 
 if __name__ == "__main__":
     main()
-
 
 
