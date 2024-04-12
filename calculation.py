@@ -2,149 +2,169 @@ import casadi
 import numpy as np
 from shoulder import ModelBiorbd, ControlsTypes, MuscleParameter
 
-
 # Initialization of constant
-lmt = 0.30
-lm0 = 0.21
-lt0 = 0.09
-kt = 35  # constante of ft(lt)
-Fm0 = 900  # maximalIsometricForce
-alpha = 0.52  # pennation
+musculotendon_length = 0.30
+muscle_length0 = 0.21
+tendon_length0 = 0.09
+kt = 35  # constante of ft(tendon_length)
+maximalIsometricForce = 900
+pennation = 0.52
 threshold = 1e-8
-a = 0.5  # activation
+activation = 0.5  # activationtendon_lengthats
+velocity_muscle0 = 2
+
+L0 = 0.014  # Standard length L0
+a_velocity = 0.4 * maximalIsometricForce
+b_velocity = 0.85 * L0
 
 
-# Force passive definition
-def fpas(lm):
-    return ((lm / lm0) ** 3) * np.exp(8 * (lm / lm0) - 12.9)
+# Force passive definition = fpce
+def fpas(muscle_length):
+    return ((muscle_length / muscle_length0) ** 3) * np.exp(8 * (muscle_length / muscle_length0) - 12.9)
 
 
-# Force active definition
-def fact(lm):
-    return 1 - (((lm / lm0) - 1) / 0.5) ** 2
+# Force active definition = flce
+def fact(muscle_length):
+    return 1 - (((muscle_length / muscle_length0) - 1) / 0.5) ** 2
 
 
-# Force velocity equation
+# Force velocity equation = fvce
 def fv(vm):
-    return 1
+    return (2 * velocity_muscle0 - b_velocity + vm * a_velocity / maximalIsometricForce) / (
+        velocity_muscle0 - b_velocity
+    )
 
 
-# Definition tendon Force (Ft) with the 3rd equation of De Groote : Ft = Fm0 * ft(lt)
-def ft3(lt):
-    return Fm0 * kt * (lm0 - lt) ** 2
+# Definition tendon Force (Ft) with the 3rd equation of De Groote : Ft = maximalIsometricForce * ft(tendon_length)
+def calculation_tendonforce_3rd_equation(tendon_length):
+    return maximalIsometricForce * kt * (muscle_length0 - tendon_length) ** 2
 
 
 # Definition Ft with the 7th equation of De Groote : Ft = Fm * cos(pennation)
-def ft7(lm):
-    return Fm0 * (fpas(lm) + a * fv(1) * fact(lm)) * np.cos(alpha)
+def calculation_tendonforce_7th_equation(muscle_length):
+    return maximalIsometricForce * (fpas(muscle_length) + activation * fv(30) * fact(muscle_length)) * np.cos(pennation)
 
 
-def calcul_longueurs(lmt):
+def calcul_longueurs(musculotendon_length):
 
-    # initial guess lm
-    lt = lmt / 3.2
-    lm = (lmt - lt) / np.cos(alpha)
-    # print(lm * np.cos(alpha), lt)
-    lm = lm / lm0
-    lt = lt / lt0
-    # print(lm * np.cos(alpha), lt)
+    # initial guess muscle_length
+    tendon_length = musculotendon_length / 3.2
+    muscle_length = (musculotendon_length - tendon_length) / np.cos(pennation)
+    # print(muscle_length * np.cos(pennation), tendon_length)
+    muscle_length = muscle_length / muscle_length0
+    tendon_length = tendon_length / tendon_length0
+    # print(muscle_length * np.cos(pennation), tendon_length)
     # Calculation of Ft with the Two equations
-    ft_3 = ft3(lt)
-    ft_7 = ft7(lm)
-    cpt = 0
+    tendforce_3rd_equation = calculation_tendonforce_3rd_equation(tendon_length)
+    tendforce_7th_equation = calculation_tendonforce_7th_equation(muscle_length)
+    # cpt = 0
+
     # First loop to determine the int number of Ft
-    while int(ft_3 - ft_7) != 0:
-        if ft_3 > ft_7:
+    while int(tendforce_3rd_equation - tendforce_7th_equation) != 0:
 
-            # Ft_3 > Ft_7 and lm < lt
-            if lm * np.cos(alpha) <= lt:
-                eps = abs(lm * np.cos(alpha) - lmt) / 2
-                lm = (lm + eps) / np.cos(alpha)
-                lt = lmt - lm * np.cos(alpha)
+        if tendforce_3rd_equation > tendforce_7th_equation:
 
-            # Ft_3 > Ft_7 and lm > lt
+            # tendforce_3rd_equation > tendforce_7th_equation and muscle_length < tendon_length
+            if muscle_length * np.cos(pennation) <= tendon_length:
+                eps = abs(muscle_length * np.cos(pennation) - musculotendon_length) / 2
+                muscle_length = (muscle_length + eps) / np.cos(pennation)
+                tendon_length = musculotendon_length - muscle_length * np.cos(pennation)
+
+            # tendforce_3rd_equation > tendforce_7th_equation and muscle_length > tendon_length
             else:
-                eps = abs(lm * np.cos(alpha) - lt) / 20
-                lm += eps / np.cos(alpha)
-                lt = lmt - lm * np.cos(alpha)
-        elif ft_7 > ft_3:
+                eps = abs(muscle_length * np.cos(pennation) - tendon_length) / 20
+                muscle_length += eps / np.cos(pennation)
+                tendon_length = musculotendon_length - muscle_length * np.cos(pennation)
 
-            # Ft_3 < Ft_7 and lm > lt
-            if lm * np.cos(alpha) >= lt:
-                eps = abs(lm * np.cos(alpha) - lmt) / 20
-                lm = lm - (eps / np.cos(alpha))
-                lt = lmt - lm * np.cos(alpha)
+        elif tendforce_7th_equation > tendforce_3rd_equation:
 
-            # Ft_3 < Ft_7 and lm < lt
+            # tendforce_3rd_equation < tendforce_7th_equation and muscle_length > tendon_length
+            if muscle_length * np.cos(pennation) >= tendon_length:
+                eps = abs(muscle_length * np.cos(pennation) - musculotendon_length) / 20
+                muscle_length = muscle_length - (eps / np.cos(pennation))
+                tendon_length = musculotendon_length - muscle_length * np.cos(pennation)
+
+            # tendforce_3rd_equation < tendforce_7th_equation and muscle_length < tendon_length
             else:
-                eps = abs(lm * np.cos(alpha) - lt) / 20
-                lt = eps
-                lm = (lmt - lt) / np.cos(alpha)
-        ft_3 = ft3(lt)
-        ft_7 = ft7(lm)
+                eps = abs(muscle_length * np.cos(pennation) - tendon_length) / 20
+                tendon_length = eps
+                muscle_length = (musculotendon_length - tendon_length) / np.cos(pennation)
+
+        tendforce_3rd_equation = calculation_tendonforce_3rd_equation(tendon_length)
+        tendforce_7th_equation = calculation_tendonforce_7th_equation(muscle_length)
         """
         if cpt == 100:
-            print([ft_3, ft_7, lm * np.cos(alpha), lt, eps])
+            print([tendforce_3rd_equation, tendforce_7th_equation, muscle_length * np.cos(pennation), tendon_length, eps])
             cpt = 0
         else:
             cpt += 1
 
-    print([ft_3, ft_7, lm * np.cos(alpha), lt, lmt])
+    print([tendforce_3rd_equation, tendforce_7th_equation, muscle_length * np.cos(pennation), tendon_length, musculotendon_length])
     print("Changement de boucle")
         """
     # Second loop to determine the number after the comma
-    while np.abs(ft_3 - ft_7) > threshold:
-        if ft_3 > ft_7:
-            if lm * np.cos(alpha) <= lt:
-                eps = abs(lm * np.cos(alpha) - lmt) / 2
-                lm = (lm + eps) / np.cos(alpha)
-                lt = lmt - lm * np.cos(alpha)
+    while np.abs(tendforce_3rd_equation - tendforce_7th_equation) > threshold:
+        if tendforce_3rd_equation > tendforce_7th_equation:
+            if muscle_length * np.cos(pennation) <= tendon_length:
+                eps = abs(muscle_length * np.cos(pennation) - musculotendon_length) / 2
+                muscle_length = (muscle_length + eps) / np.cos(pennation)
+                tendon_length = musculotendon_length - muscle_length * np.cos(pennation)
             else:
-                eps = abs(lm * np.cos(alpha) - lt) * threshold
-                lm += eps / np.cos(alpha)
-                lt = lmt - lm * np.cos(alpha)
+                eps = abs(muscle_length * np.cos(pennation) - tendon_length) * threshold
+                muscle_length += eps / np.cos(pennation)
+                tendon_length = musculotendon_length - muscle_length * np.cos(pennation)
         else:
-            if lm * np.cos(alpha) >= lt:
-                eps = abs(lm * np.cos(alpha) - lmt) * threshold
-                lm -= eps / np.cos(alpha)
-                lt = lmt - lm * np.cos(alpha)
+            if muscle_length * np.cos(pennation) >= tendon_length:
+                eps = abs(muscle_length * np.cos(pennation) - musculotendon_length) * threshold
+                muscle_length -= eps / np.cos(pennation)
+                tendon_length = musculotendon_length - muscle_length * np.cos(pennation)
             else:
-                eps = abs(lm * np.cos(alpha) - lt) / 2
-                lt = eps
-                lm = (lmt - lt) / np.cos(alpha)
-        ft_3 = ft3(lt)
-        ft_7 = ft7(lm)
+                eps = abs(muscle_length * np.cos(pennation) - tendon_length) / 2
+                tendon_length = eps
+                muscle_length = (musculotendon_length - tendon_length) / np.cos(pennation)
+        tendforce_3rd_equation = calculation_tendonforce_3rd_equation(tendon_length)
+        tendforce_7th_equation = calculation_tendonforce_7th_equation(muscle_length)
         """
         if cpt == 100:
-            print([ft_3, ft_7, lm * np.cos(alpha), lt, lmt])
+            print([tendforce_3rd_equation, tendforce_7th_equation, muscle_length * np.cos(pennation), tendon_length, musculotendon_length])
             cpt = 0
         else:
             cpt += 1
         """
-    return {"ft_3": ft_3, "ft_7": ft_7, "lm": lm, "lt": lt, "lmt": lmt}
+    return {
+        "tendforce_3rd_equation": tendforce_3rd_equation,
+        "tendforce_7th_equation": tendforce_7th_equation,
+        "muscle_length": muscle_length,
+        "tendon_length": tendon_length,
+        "musculotendon_length": musculotendon_length,
+    }
 
 
 def main():
-    resultats = calcul_longueurs(lmt)
-    # print(resultats)
-    if resultats["lm"] * np.cos(alpha) > resultats["lmt"] or resultats["lt"] < 0:
+    results = calcul_longueurs(musculotendon_length)
+    # print(resutendon_lengthats)
+    if results["muscle_length"] * np.cos(pennation) > results["musculotendon_length"] or results["tendon_length"] < 0:
         print("Pas de solution pour ce problème.")
     else:
         print(
-            "Longueur du musculotendon:",
-            resultats["lmt"],
-            "\nPour cette valeur de musculotendon, on a :",
-            "\nFt = ",
-            resultats["ft_3"],
-            "N",
-            "\nLm = ",
-            resultats["lm"],
+            "\nMusculotendon length:",
+            results["musculotendon_length"],
             "cm",
-            "\nLt = ",
-            resultats["lt"],
+            "\nWith this value:",
+            "\nFt = ",
+            results["tendforce_3rd_equation"],
+            "N",
+            "\nMuscle_length = ",
+            results["muscle_length"],
+            "cm",
+            "\nTendon_length = ",
+            results["tendon_length"],
             "cm",
         )
 
 
 if __name__ == "__main__":
     main()
+
+
+
