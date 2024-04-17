@@ -1,17 +1,18 @@
 import casadi
 import numpy as np
 from shoulder import ModelBiorbd, ControlsTypes, MuscleParameter
+import timeit
 
 # Initialization of constant and parameters
 musculotendon_length = 0.30
 muscle_length0 = 0.09  # If the divsion between muscle_length0 and muscle_length is too big it doesn't work
 tendon_length0 = 0.22
 kt = 35  # constante of ft(tendon_length)
-maximalIsometricForce = 700
+maximalIsometricForce = 800
 pennation = 0.52
 threshold = 1e-8
 activation = 0.8  # activationtendon_lengthats
-velocity_muscle0 = 50
+velocity_muscle0 = 0.5
 
 L0 = 0.014  # Standard length L0
 a_velocity = 0.4 * maximalIsometricForce
@@ -29,8 +30,8 @@ def fact(muscle_length):
 
 
 # Force velocity equation = fvce
-def fv(vm):
-    return (2 * velocity_muscle0 - b_velocity + vm * a_velocity / maximalIsometricForce) / (
+def fv(muscle_velocity):
+    return (2 * velocity_muscle0 - b_velocity + muscle_velocity * a_velocity / maximalIsometricForce) / (
         velocity_muscle0 - b_velocity
     )
 
@@ -49,7 +50,8 @@ def calculation_tendonforce_7th_equation(muscle_length, muscle_velocity):
     )
 
 
-# Method with IPOPT and casadi
+# Method with newton rootfinder casadi: By using Newton Method and not IPOPT, it divides by 5 the time to execute the program :
+# 0.015 sec with IPOPT vs 0.003 sec with newton method
 def calcul_longueurs(musculotendon_length):
     # Declare the variables
     muscle_length = casadi.SX.sym("x", 1, 1)
@@ -63,24 +65,21 @@ def calcul_longueurs(musculotendon_length):
             velocity_muscle0,
         ]
     )
-    lbx = 0
-    ubx = musculotendon_length
     # Declare the constraints
     g1 = musculotendon_length - tendon_length - muscle_length * np.cos(pennation)
-    g_dot_muscle_length = casadi.gradient(muscle_length, muscle_length) - muscle_velocity
+    g_dot_muscle_length = (
+        casadi.gradient(muscle_length, muscle_length) - muscle_velocity
+    )  # give the same value as musculotendon_length
     g2 = calculation_tendonforce_3rd_equation(tendon_length) - calculation_tendonforce_7th_equation(
-        muscle_length,
-        muscle_velocity,
+        muscle_length, muscle_velocity
     )
     g = casadi.vertcat(g1, g_dot_muscle_length, g2)
-    lbg = 0
-    ubg = 0
 
     # Declare the solver
-    solver = casadi.nlpsol("solver", "ipopt", {"x": x, "g": g})
-    sol = solver(x0=x0, lbx=lbx, ubx=ubx, lbg=lbg, ubg=ubg)
+    solver = casadi.rootfinder("solver", "newton", {"x": x, "g": g})
+    sol = solver(x0=x0)
 
-    Tendon_force = calculation_tendonforce_3rd_equation(sol["x"][1])
+    Tendon_force_1 = calculation_tendonforce_3rd_equation(sol["x"][0])
     print(
         "Tendon length cm:",
         sol["x"][0],
@@ -89,7 +88,9 @@ def calcul_longueurs(musculotendon_length):
         "Velocity muscle cm/s:",
         sol["x"][2],
         "Tendon force N:",
-        Tendon_force,
+        Tendon_force_1,
+        "Musculotendon length",
+        sol["x"][0] + sol["x"][1] * np.cos(pennation),
     )
 
 
@@ -196,7 +197,8 @@ def calcul_longueurs(musculotendon_length):
 
 
 def main():
-    results = calcul_longueurs(musculotendon_length)
+    execution_time = timeit.timeit(lambda: calcul_longueurs(musculotendon_length), number=1)
+    print(execution_time)
 
 
 """
