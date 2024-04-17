@@ -3,21 +3,19 @@ import numpy as np
 from shoulder import ModelBiorbd, ControlsTypes, MuscleParameter
 
 # Initialization of constant and parameters
-musculotendon_length = 0.20
-muscle_length0 = 0.12 # If the divsion between muscle_length0 and muscle_length is too big it doesn't work 
-tendon_length0 = 0.19
+musculotendon_length = 0.30
+muscle_length0 = 0.09  # If the divsion between muscle_length0 and muscle_length is too big it doesn't work
+tendon_length0 = 0.22
 kt = 35  # constante of ft(tendon_length)
-maximalIsometricForce = 900
+maximalIsometricForce = 700
 pennation = 0.52
 threshold = 1e-8
-activation = 0.5  # activationtendon_lengthats
-velocity_muscle0 = 2
+activation = 0.8  # activationtendon_lengthats
+velocity_muscle0 = 50
 
 L0 = 0.014  # Standard length L0
 a_velocity = 0.4 * maximalIsometricForce
 b_velocity = 0.85 * L0
-
-
 
 
 # Force passive definition = fpce
@@ -30,10 +28,11 @@ def fact(muscle_length):
     return 1 - (((muscle_length / muscle_length0) - 1) / 0.5) ** 2
 
 
-
 # Force velocity equation = fvce
 def fv(vm):
-    return (2 * velocity_muscle0 - b_velocity + vm * a_velocity / maximalIsometricForce) / ( velocity_muscle0 - b_velocity )
+    return (2 * velocity_muscle0 - b_velocity + vm * a_velocity / maximalIsometricForce) / (
+        velocity_muscle0 - b_velocity
+    )
 
 
 # Definition tendon Force (Ft) with the 3rd equation of De Groote : Ft = maximalIsometricForce * ft(tendon_length)
@@ -42,11 +41,62 @@ def calculation_tendonforce_3rd_equation(tendon_length):
 
 
 # Definition Ft with the 7th equation of De Groote : Ft = Fm * cos(pennation)
-def calculation_tendonforce_7th_equation(muscle_length):
-    return maximalIsometricForce * (fpas(muscle_length) + activation * fv(60) * fact(muscle_length)) * np.cos(pennation)
+def calculation_tendonforce_7th_equation(muscle_length, muscle_velocity):
+    return (
+        maximalIsometricForce
+        * (fpas(muscle_length) + activation * fv(muscle_velocity) * fact(muscle_length))
+        * np.cos(pennation)
+    )
 
 
+# Method with IPOPT and casadi
 def calcul_longueurs(musculotendon_length):
+    # Declare the variables
+    muscle_length = casadi.SX.sym("x", 1, 1)
+    tendon_length = casadi.SX.sym("y", 1, 1)
+    muscle_velocity = casadi.SX.sym("z", 1, 1)
+    x = casadi.vertcat(tendon_length, muscle_length, muscle_velocity)
+    x0 = casadi.DM(
+        [
+            musculotendon_length * 2 / 3,
+            ((musculotendon_length * 1 / 3) / (np.cos(pennation)) * muscle_length0),
+            velocity_muscle0,
+        ]
+    )
+    lbx = 0
+    ubx = musculotendon_length
+    # Declare the constraints
+    g1 = musculotendon_length - tendon_length - muscle_length * np.cos(pennation)
+    g_dot_muscle_length = casadi.gradient(muscle_length, muscle_length) - muscle_velocity
+    g2 = calculation_tendonforce_3rd_equation(tendon_length) - calculation_tendonforce_7th_equation(
+        muscle_length,
+        muscle_velocity,
+    )
+    g = casadi.vertcat(g1, g_dot_muscle_length, g2)
+    lbg = 0
+    ubg = 0
+
+    # Declare the solver
+    solver = casadi.nlpsol("solver", "ipopt", {"x": x, "g": g})
+    sol = solver(x0=x0, lbx=lbx, ubx=ubx, lbg=lbg, ubg=ubg)
+
+    Tendon_force = calculation_tendonforce_3rd_equation(sol["x"][1])
+    print(
+        "Tendon length cm:",
+        sol["x"][0],
+        "Muscle length cm:",
+        sol["x"][1],
+        "Velocity muscle cm/s:",
+        sol["x"][2],
+        "Tendon force N:",
+        Tendon_force,
+    )
+
+
+# Method without IPOPT and Casadi
+"""
+def calcul_longueurs(musculotendon_length):
+
 
     # initial guess muscle_length
     tendon_length = musculotendon_length * 2 / 3
@@ -134,6 +184,7 @@ def calcul_longueurs(musculotendon_length):
         
 
         print([tendforce_3rd_equation, tendforce_7th_equation, muscle_length * np.cos(pennation), tendon_length, musculotendon_length])
+  
     return {
         "tendforce_3rd_equation": tendforce_3rd_equation,
         "tendforce_7th_equation": tendforce_7th_equation,
@@ -141,11 +192,15 @@ def calcul_longueurs(musculotendon_length):
         "tendon_length": tendon_length,
         "musculotendon_length": musculotendon_length,
     }
+"""
 
 
 def main():
     results = calcul_longueurs(musculotendon_length)
-    # print(resutendon_lengthats)
+
+
+"""
+
     if results["muscle_length"] * np.cos(pennation) > results["musculotendon_length"] or results["tendon_length"] < 0:
         print("Pas de solution pour ce problème.")
     else:
@@ -168,7 +223,7 @@ def main():
             f"\nVerification of the equation of De Groote : Musculotendon length: {results["musculotendon_length"]} ?= Tendon_length: {results["tendon_length"]} + Muscle_length * cos(pennation): {results["muscle_length"] * np.cos(pennation)} "
         )
 
-
+"""
 if __name__ == "__main__":
     main()
 
