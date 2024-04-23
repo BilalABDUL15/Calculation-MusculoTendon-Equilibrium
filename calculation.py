@@ -4,11 +4,11 @@ from shoulder import ModelBiorbd, ControlsTypes, MuscleParameter
 import timeit
 
 # Initialization of constant and parameters
-musculotendon_length = 0.30
-muscle_length0 = 0.21
-tendon_length0 = 0.11
+musculotendon_length = 0.50
+muscle_length0 = 0.31
+tendon_length0 = 0.20
 
-maximalIsometricForce = 500
+maximalIsometricForce = 700
 pennation = 0.52  # equal to 30 degrees
 activation = 0.1  # activationtendon_length
 muscle_velocity0 = 0.03
@@ -50,16 +50,16 @@ d4 = 0.886
 
 
 # Force passive definition = fpce
-def fpas(muscle_length):
-    return (np.exp(kpe * (muscle_length - 1) / e0) - 1) / (np.exp(kpe) - 1)
+def fpas(muscle_length_normalized):
+    return (np.exp(kpe * (muscle_length_normalized - 1) / e0) - 1) / (np.exp(kpe) - 1)
 
 
 # Force active definition = flce
-def fact(muscle_length):
+def fact(muscle_length_normalized):
     return (
-        b11 * np.exp((-0.5) * ((muscle_length - b21) ** 2) / (b31 + b41 * muscle_length))
-        + b12 * np.exp((-0.5) * (muscle_length - b22) ** 2 / (b32 + b42 * muscle_length))
-        + b13 * np.exp((-0.5) * (muscle_length - b23) ** 2 / (b33 + b43 * muscle_length))
+        b11 * np.exp((-0.5) * ((muscle_length_normalized - b21) ** 2) / (b31 + b41 * muscle_length_normalized))
+        + b12 * np.exp((-0.5) * (muscle_length_normalized - b22) ** 2 / (b32 + b42 * muscle_length_normalized))
+        + b13 * np.exp((-0.5) * (muscle_length_normalized - b23) ** 2 / (b33 + b43 * muscle_length_normalized))
     )
 
 
@@ -69,27 +69,42 @@ def fvm(muscle_velocity):
 
 
 # ft(lt)
-def ft(tendon_length):
-    return c1 * np.exp(kt * (tendon_length - c2)) - c3
+def ft(tendon_length_normalized):
+    return c1 * np.exp(kt * (tendon_length_normalized - c2)) - c3
 
 
 # Definition tendon Force (Ft) with the 3rd equation of De Groote : Ft = maximalIsometricForce * ft(tendon_length)
-def calculation_tendonforce_3rd_equation(tendon_length):
-    return maximalIsometricForce * ft(tendon_length)
+def calculation_tendonforce_3rd_equation(tendon_length_normalized):
+    return maximalIsometricForce * ft(tendon_length_normalized)
 
 
 # Definition Ft with the 7th equation of De Groote : Ft = Fm * cos(pennation)
-def calculation_tendonforce_7th_equation(muscle_length, muscle_velocity):
+def calculation_tendonforce_7th_equation(muscle_length_normalized, muscle_velocity_normalized):
     return (
         maximalIsometricForce
-        * (fpas(muscle_length) + activation * fvm(muscle_velocity) * fact(muscle_length))
+        * (
+            fpas(muscle_length_normalized)
+            + activation * fvm(muscle_velocity_normalized) * fact(muscle_length_normalized)
+        )
         * np.cos(pennation)
     )
 
 
-# IPOPT Method
+def fvm_inverse(muscle_length_normalized, tendon_length_normalized):
+    return (ft(tendon_length_normalized) / np.cos(pennation) - fpas(muscle_length_normalized)) / (
+        activation * fact(muscle_length_normalized)
+    )
 
+
+def verification_equal_Ft(tendon_length_normalized, muscle_length_normalized, muscle_velocity_normalized):
+    return calculation_tendonforce_3rd_equation(tendon_length_normalized) - calculation_tendonforce_7th_equation(
+        muscle_length_normalized, muscle_velocity_normalized
+    )
+
+
+# IPOPT Method
 """
+
 def calcul_longueurs(musculotendon_length):
     # Declare the variables
     muscle_length = casadi.SX.sym("x", 1, 1)
@@ -124,7 +139,6 @@ def calcul_longueurs(musculotendon_length):
         * muscle_velocity_max
         - muscle_velocity
     )
-    g4 = muscle_velocity >=0
     g = casadi.vertcat(g1, g2, g3)
     # Declare the solver
     solver = casadi.nlpsol("solver", "ipopt", {"x": x, "g": g})
@@ -139,6 +153,18 @@ def calcul_longueurs(musculotendon_length):
         sol["x"][1],
         "Velocity muscle cm/s:",
         sol["x"][2],
+        1
+        / d2
+        * np.sinh(
+            1
+            / d1
+            * (
+                (ft(sol["x"][0] / tendon_length0) / np.cos(pennation) - fpas(sol["x"][1] / muscle_length0))
+                / (activation * fact(sol["x"][1] / muscle_length0))
+                - d4
+            )
+        )
+        * muscle_velocity_max,
         "Tendon force 3 N:",
         Tendon_force_1,
         "Tendon force 7 N:",
@@ -157,7 +183,7 @@ def calcul_longueurs(musculotendon_length):
 """
 
 
-# Newton method 3m times faster than IPOPT method
+# Newton method 3 times faster than IPOPT method
 def calcul_longueurs(musculotendon_length):
     # Declare the variables
     muscle_length = casadi.SX.sym("x", 1, 1)
@@ -174,26 +200,15 @@ def calcul_longueurs(musculotendon_length):
 
     # Declare the constraints
     g1 = musculotendon_length - (tendon_length + muscle_length * np.cos(pennation))
-    ft3 = calculation_tendonforce_3rd_equation(tendon_length / tendon_length0)
-    ft7 = calculation_tendonforce_7th_equation(muscle_length / muscle_length0, muscle_velocity / muscle_velocity0)
-    g2 = ft3 - ft7
-    g3 = (
-        1
-        / d2
-        * np.sinh(
-            (1 / d1)
-            * (
-                (
-                    (ft(tendon_length / tendon_length0) / np.cos(pennation) - fpas(muscle_length / muscle_length0))
-                    / (activation * fact(muscle_length / muscle_length0))
-                )
-                - d4
-            )
-        )
-        * muscle_velocity_max
-        - muscle_velocity
+    g2 = verification_equal_Ft(
+        tendon_length / tendon_length0, muscle_length / muscle_length0, muscle_velocity / muscle_velocity0
     )
+    g3 = (1 / d2) * np.sinh(
+        (1 / d1) * (fvm_inverse(muscle_length / muscle_length0, tendon_length / tendon_length0) - d4)
+    ) * muscle_velocity_max - muscle_velocity
+
     g = casadi.vertcat(g1, g2, g3)
+
     # Declare the solver
     solver = casadi.rootfinder("solver", "newton", {"x": x, "g": g})
     sol = solver(x0=x0)
@@ -206,6 +221,9 @@ def calcul_longueurs(musculotendon_length):
         "Muscle length m:",
         sol["x"][1],
         "Velocity muscle m/s:",
+        (1 / d2)
+        * np.sinh((1 / d1) * (fvm_inverse(sol["x"][1] / muscle_length0, sol["x"][0] / tendon_length0) - d4))
+        * muscle_velocity_max,
         sol["x"][2],
         "Tendon force 3 N:",
         Tendon_force_1,
