@@ -4,11 +4,11 @@ from shoulder import ModelBiorbd, ControlsTypes, MuscleParameter
 import timeit
 
 # Initialization of constant and parameters
-musculotendon_length = 0.50
-muscle_length0 = 0.31
-tendon_length0 = 0.20
+musculotendon_length = 0.40
+muscle_length0 = 0.28
+tendon_length0 = 0.13
 
-maximalIsometricForce = 700
+maximalIsometricForce = 200
 pennation = 0.52  # equal to 30 degrees
 activation = 0.1  # activationtendon_length
 muscle_velocity0 = 0.03
@@ -64,8 +64,11 @@ def fact(muscle_length_normalized):
 
 
 # Muscle force velocity equation = fvce
-def fvm(muscle_velocity):
-    return d1 * np.log((d2 * muscle_velocity + d3) + np.sqrt(((d2 * muscle_velocity + d3) ** 2) + 1)) + d4
+def fvm(muscle_velocity_normalized):
+    return (
+        d1 * np.log((d2 * muscle_velocity_normalized + d3) + np.sqrt(((d2 * muscle_velocity_normalized + d3) ** 2) + 1))
+        + d4
+    )
 
 
 # ft(lt)
@@ -80,13 +83,8 @@ def calculation_tendonforce_3rd_equation(tendon_length_normalized):
 
 # Definition Ft with the 7th equation of De Groote : Ft = Fm * cos(pennation)
 def calculation_tendonforce_7th_equation(muscle_length_normalized, muscle_velocity_normalized):
-    return (
-        maximalIsometricForce
-        * (
-            fpas(muscle_length_normalized)
-            + activation * fvm(muscle_velocity_normalized) * fact(muscle_length_normalized)
-        )
-        * np.cos(pennation)
+    return maximalIsometricForce * (
+        fpas(muscle_length_normalized) + activation * fvm(muscle_velocity_normalized) * fact(muscle_length_normalized)
     )
 
 
@@ -103,8 +101,8 @@ def verification_equal_Ft(tendon_length_normalized, muscle_length_normalized, mu
 
 
 # IPOPT Method
-"""
 
+"""
 def calcul_longueurs(musculotendon_length):
     # Declare the variables
     muscle_length = casadi.SX.sym("x", 1, 1)
@@ -118,30 +116,28 @@ def calcul_longueurs(musculotendon_length):
             muscle_velocity0,
         ]
     )
-
+    f = (
+        muscle_velocity
+        - (1 / d2)
+        * np.sinh((1 / d1) * (fvm_inverse(muscle_length / muscle_length0, tendon_length / tendon_length0) - d4))
+        * muscle_velocity_max
+    )
     # Declare the constraints
     g1 = musculotendon_length - tendon_length - muscle_length * np.cos(pennation)
-    ft3 = calculation_tendonforce_3rd_equation(tendon_length / tendon_length0)
-    ft7 = calculation_tendonforce_7th_equation(muscle_length / muscle_length0, muscle_velocity / muscle_velocity0)
-    g2 = ft3 - ft7
-    g3 = (
-        1
-        / d2
-        * np.sinh(
-            1
-            / d1
-            * (
-                (ft(tendon_length / tendon_length0) / np.cos(pennation) - fpas(muscle_length / muscle_length0))
-                / (activation * fact(muscle_length / muscle_length0))
-                - d4
-            )
-        )
-        * muscle_velocity_max
-        - muscle_velocity
+    g2 = verification_equal_Ft(
+        tendon_length / tendon_length0, muscle_length / muscle_length0, muscle_velocity / muscle_velocity0
     )
+
+    g3 = muscle_velocity - (
+        -d3 / d2
+        + (1 / d2)
+        * np.sinh((1 / d1) * (fvm_inverse(muscle_length / muscle_length0, tendon_length / tendon_length0) - d4))
+        * muscle_velocity_max
+    )
+
     g = casadi.vertcat(g1, g2, g3)
     # Declare the solver
-    solver = casadi.nlpsol("solver", "ipopt", {"x": x, "g": g})
+    solver = casadi.nlpsol("solver", "ipopt", {"x": x, "f": f, "g": g})
     sol = solver(x0=x0, ubx=musculotendon_length, lbx=0, ubg=0, lbg=0)
     Tendon_force_1 = calculation_tendonforce_3rd_equation(sol["x"][0] / tendon_length0)
     Tendon_force_2 = calculation_tendonforce_7th_equation(sol["x"][1] / muscle_length0, sol["x"][2] / muscle_velocity0)
@@ -153,17 +149,9 @@ def calcul_longueurs(musculotendon_length):
         sol["x"][1],
         "Velocity muscle cm/s:",
         sol["x"][2],
-        1
-        / d2
-        * np.sinh(
-            1
-            / d1
-            * (
-                (ft(sol["x"][0] / tendon_length0) / np.cos(pennation) - fpas(sol["x"][1] / muscle_length0))
-                / (activation * fact(sol["x"][1] / muscle_length0))
-                - d4
-            )
-        )
+        -d3 / d2
+        + (1 / d2)
+        * np.sinh((1 / d1) * (fvm_inverse(sol["x"][1] / muscle_length0, sol["x"][0] / tendon_length0) - d4))
         * muscle_velocity_max,
         "Tendon force 3 N:",
         Tendon_force_1,
@@ -203,9 +191,93 @@ def calcul_longueurs(musculotendon_length):
     g2 = verification_equal_Ft(
         tendon_length / tendon_length0, muscle_length / muscle_length0, muscle_velocity / muscle_velocity0
     )
-    g3 = (1 / d2) * np.sinh(
-        (1 / d1) * (fvm_inverse(muscle_length / muscle_length0, tendon_length / tendon_length0) - d4)
-    ) * muscle_velocity_max - muscle_velocity
+
+    g3 = muscle_velocity - (
+        -d3 / d2
+        + (1 / d2)
+        * np.sinh((1 / d1) * (fvm_inverse(muscle_length / muscle_length0, tendon_length / tendon_length0) - d4))
+        * muscle_velocity_max
+    )
+    g = casadi.vertcat(g1, g2, g3)
+
+    # Declare the solver
+    solver = casadi.rootfinder("solver", "newton", {"x": x, "g": g})
+    sol = solver(x0=x0)
+    Tendon_force_1 = calculation_tendonforce_3rd_equation(sol["x"][0] / tendon_length0)
+    Tendon_force_2 = calculation_tendonforce_7th_equation(sol["x"][1] / muscle_length0, sol["x"][2] / muscle_velocity0)
+
+    print(
+        "Tendon length m:",
+        sol["x"][0],
+        "Muscle length m:",
+        sol["x"][1],
+        "Velocity muscle m/s:",
+        -d3 / d2
+        + (1 / d2)
+        * np.sinh((1 / d1) * (fvm_inverse(sol["x"][1] / muscle_length0, sol["x"][0] / tendon_length0) - d4))
+        * muscle_velocity_max,
+        sol["x"][2],
+        "Tendon force 3 N:",
+        Tendon_force_1,
+        "Tendon force 7 N:",
+        Tendon_force_2,
+        "Musculotendon length",
+        sol["x"][0] + sol["x"][1] * np.cos(pennation),
+    )
+
+    return {
+        "Tendon_force": Tendon_force_1,
+        "Tendon_length": sol["x"][0],
+        "Muscle_length": sol["x"][1],
+        "Muscle_velocity": sol["x"][2],
+    }
+
+
+def main():
+    # calcul_longueurs(musculotendon_length)
+    execution_time = timeit.timeit(lambda: calcul_longueurs(musculotendon_length), number=1)
+    print("Time execution:", execution_time)
+
+
+"""
+
+    if results["muscle_length"] * np.cos(pennation) > results["musculotendon_length"] or results["tendon_length"] < 0:
+        print("Pas de solution pour ce problème.")
+    else:
+        print(
+            "\nMusculotendon length:",
+            results["musculotendon_length"],
+            "cm",
+            "\nWith this value:",
+            "\nFt = ",
+            results["tendforce_3rd_equation"],
+            "N",
+            "\nMuscle_length = ",def calcul_longueurs(musculotendon_length):
+    # Declare the variables
+    muscle_length = casadi.SX.sym("x", 1, 1)
+    tendon_length = casadi.SX.sym("y", 1, 1)
+    muscle_velocity = casadi.SX.sym("z", 1, 1)
+    x = casadi.vertcat(tendon_length, muscle_length, muscle_velocity)
+    x0 = casadi.DM(
+        [
+            musculotendon_length * 1 / 3,
+            ((musculotendon_length * 2 / 3) / np.cos(pennation)),
+            muscle_velocity0,
+        ]
+    )
+
+    # Declare the constraints
+    g1 = musculotendon_length - (tendon_length + muscle_length * np.cos(pennation))
+    g2 = verification_equal_Ft(
+        tendon_length / tendon_length0, muscle_length / muscle_length0, muscle_velocity / muscle_velocity0
+    )
+    g3 = (
+        muscle_velocity
+        - (1 / d2)
+        * np.sinh((1 / d1) * (fvm_inverse(muscle_length / muscle_length0, tendon_length / tendon_length0) - d4))
+        * muscle_velocity_max
+    )
+    # g4 = muscle_velocity > 0
 
     g = casadi.vertcat(g1, g2, g3)
 
@@ -246,21 +318,6 @@ def main():
     execution_time = timeit.timeit(lambda: calcul_longueurs(musculotendon_length), number=1)
     print("Time execution:", execution_time)
 
-
-"""
-
-    if results["muscle_length"] * np.cos(pennation) > results["musculotendon_length"] or results["tendon_length"] < 0:
-        print("Pas de solution pour ce problème.")
-    else:
-        print(
-            "\nMusculotendon length:",
-            results["musculotendon_length"],
-            "cm",
-            "\nWith this value:",
-            "\nFt = ",
-            results["tendforce_3rd_equation"],
-            "N",
-            "\nMuscle_length = ",
             results["muscle_length"],
             "cm",
             "\nTendon_length = ",
