@@ -147,7 +147,7 @@ def prepare_ocp(
     n_shooting = 100
 
     # final_time = 0.01
-    final_time = 0.3
+    final_time = 0.2
 
     # Add objective functions
     objective_functions = ObjectiveList()
@@ -173,9 +173,10 @@ def prepare_ocp(
     x_bounds.add("qdot", bio_model.bounds_from_ranges("qdot"))
     x_bounds.add("lm", min_bound=0, max_bound=1)
 
-    q0_init = -0.28
-    q0_final = -0.25
+    q0_init = -0.30
+    q0_final = -0.22
     q0_offset = 0.3
+
     x_bounds["q"].min += q0_offset
     x_bounds["q"].max += q0_offset
 
@@ -234,21 +235,11 @@ def main():
     """import numpy as np
     import bioviz
 
-    # Load the model
     biorbd_viz = bioviz.Viz("models/test.bioMod")
 
-    # Create a movement
     n_frames = 20
     all_q = np.zeros((biorbd_viz.nQ, n_frames))
-    # all_q[4, :] = np.linspace(0, np.pi / 2, n_frames)
 
-    f_ext = np.zeros((1, 6, n_frames))
-    # fill the origin of the external force
-    f_ext[0, :3, :] = np.linspace(np.zeros(3), np.ones(3) * 0.1, n_frames).T
-    # fill the location of the tip of the arrow
-    f_ext[0, 3:, :] = np.linspace(np.ones(3) * 0.2, np.ones(3) * 0.25, n_frames).T
-
-    # Animate the model
     biorbd_viz.load_movement(all_q)
     biorbd_viz.exec()
     return"""
@@ -287,32 +278,174 @@ def main():
     all_q = states["q"]
     all_qdot = states["qdot"]
     all_lm = states["lm"]
+    all_activation = sol.decision_controls(to_merge=SolutionMerge.NODES)["muscles"]
+    q_tab = []
+    qdot_tab = []
+    activation_tab = []
+    muscle_velocity = []
+    Fm = []
+    Ft = []
+
     for q, qdot, lm in zip(all_q.T, all_qdot.T, all_lm.T):
         updated_kinematic_model = m.UpdateKinematicsCustom(q)
         m.updateMuscles(updated_kinematic_model, q)
         for group_idx in range(m.nbMuscleGroups()):
             for muscle_idx in range(m.muscleGroup(group_idx).nbMuscles()):
                 musc = m.muscleGroup(group_idx).muscle(muscle_idx)
+                optimalLength = musc.characteristics().optimalLength()
+                tendonSlackLength = musc.characteristics().tendonSlackLength()
+                pennationAngle = musc.characteristics().pennationAngle()
+                maximalForce = musc.characteristics().forceIsoMax()
+                muscle_velocity_max = 5
         musculoTendonLength += [musc.musculoTendonLength(updated_kinematic_model, q, True)]
         musculoTendonVelocity += [musc.velocity(m, q, qdot)]
-        muscle_length += [lm]
-        tendon_length += [(musculoTendonLength[-1] - muscle_length[-1] * np.cos(0.2094))]
+        muscle_length += [lm[0]]
+        tendon_length += [(musculoTendonLength[-1] - muscle_length[-1] * np.cos(pennationAngle))]
+        q_tab.append(q[0])
+        qdot_tab.append(qdot[0])
+
+    for activation in all_activation.T:
+        activation_tab.append(activation[0])
+
+    """ Vm Fm Ft recalculation for Linear method"""
+
+    for i in range(len(activation_tab)):
+        if i == 0:
+            alpha, beta = bio_model.tangent_factor_calculation(0)
+            vm = (
+                bio_model.ft(tendon_length[5 * i] / tendonSlackLength) / casadi.cos(pennationAngle)
+                - bio_model.fpas(muscle_length[5 * i] / optimalLength)
+                - beta * activation_tab[i] * bio_model.fact(muscle_length[5 * i] / optimalLength)
+            ) / (alpha * activation_tab[i] * bio_model.fact(muscle_length[5 * i] / optimalLength) + damp)
+        else:
+            alpha, beta = bio_model.tangent_factor_calculation(vm / muscle_velocity_max)
+            vm = (
+                bio_model.ft(tendon_length[(5 * i) - 1] / tendonSlackLength) / casadi.cos(pennationAngle)
+                - bio_model.fpas(muscle_length[(5 * i) - 1] / optimalLength)
+                - beta * activation_tab[i] * bio_model.fact(muscle_length[(5 * i) - 1] / optimalLength)
+            ) / (alpha * activation_tab[i] * bio_model.fact(muscle_length[(5 * i) - 1] / optimalLength) + damp)
+        muscle_velocity.append(vm)
+        Fm.append(
+            maximalForce
+            * (
+                activation_tab[i]
+                * bio_model.fact(muscle_length[5 * i] / optimalLength)
+                * bio_model.fvm(muscle_velocity[i] / muscle_velocity_max)
+                + bio_model.fpas(muscle_length[5 * i] / optimalLength)
+            )
+        )
+        Ft.append(maximalForce * bio_model.ft(tendon_length[5 * i] / tendonSlackLength))
+        print(Ft[-1], Fm[-1] * np.cos(pennationAngle))
+
+    """ Vm Fm Ft recalculation for Newton method"""
+    from scipy.optimize import newton
+
+    """for i in range(len(activation_tab)):
+        if i == 0:
+            initial_guess = 0
+            vm = newton(
+                lambda muscle_velocity_initial: bio_model.fvm(muscle_velocity_initial / muscle_velocity_max)
+                - (
+                    bio_model.ft(tendon_length[5 * i] / tendonSlackLength) / np.cos(pennationAngle)
+                    - bio_model.fpas(muscle_length[5 * i] / optimalLength)
+                    - damp * muscle_velocity_initial / 5
+                )
+                / (activation_tab[i] * bio_model.fact(muscle_length[5 * i] / optimalLength)),
+                initial_guess,
+                tol=1e-8,
+                rtol=1e-8,
+            )
+        else:
+            initial_guess = vm
+            vm = newton(
+                lambda muscle_velocity_initial: bio_model.fvm(muscle_velocity_initial / muscle_velocity_max)
+                - (
+                    bio_model.ft(tendon_length[(5 * i) - 1] / tendonSlackLength) / np.cos(pennationAngle)
+                    - bio_model.fpas(muscle_length[(5 * i) - 1] / optimalLength)
+                    - damp * muscle_velocity_initial / 5
+                )
+                / (activation_tab[i] * bio_model.fact(muscle_length[(5 * i) - 1] / optimalLength)),
+                initial_guess,
+                tol=1e-8,
+                rtol=1e-8,
+            )
+        muscle_velocity.append(vm)
+        Fm.append(
+            maximalForce
+            * (
+                activation_tab[i]
+                * bio_model.fact(muscle_length[5 * i] / optimalLength)
+                * bio_model.fvm(muscle_velocity[i] / muscle_velocity_max)
+                + bio_model.fpas(muscle_length[5 * i] / optimalLength)
+            )
+        )
+        Ft.append(maximalForce * bio_model.ft(tendon_length[5 * i] / tendonSlackLength))
+        print(Ft[-1], Fm[-1] * np.cos(pennationAngle))"""
 
     model = BiorbdModel_musculotendon_equilibrium("models/test.bioMod")
 
-    ft = [798.520 * model.ft(elem / 0.1430) for elem in tendon_length]
+    with open("with_equilibrium_linear_method.txt", "w") as fichier:
+        # with open("with_equilibrium_newton_method.txt", "w") as fichier:
+        fichier.write("MusculoTendonLength\n")
+        for lmt in musculoTendonLength:
+            fichier.write(str(lmt))
+            fichier.write(" ")
+
+        fichier.write("\nMuscle\n")
+        for lm in muscle_length:
+            fichier.write(str(lm))
+            fichier.write(" ")
+
+        fichier.write("\nTendon\n")
+        for lt in tendon_length:
+            fichier.write(str(lt))
+            fichier.write(" ")
+
+        fichier.write("\nQ\n")
+        for q in q_tab:
+            fichier.write(str(q))
+            fichier.write(" ")
+
+        fichier.write("\nQdot\n")
+        for qdot in qdot_tab:
+            fichier.write(str(qdot))
+            fichier.write(" ")
+
+        fichier.write("\nActivation\n")
+        for activation in activation_tab:
+            fichier.write(str(activation))
+            fichier.write(" ")
+
+        fichier.write("\nMuscleVelocity\n")
+        for vm in muscle_velocity:
+            fichier.write(str(vm))
+            fichier.write(" ")
+
+        fichier.write("\nMuscleForce\n")
+        for fm in Fm:
+            fichier.write(str(fm))
+            fichier.write(" ")
+
+        fichier.write("\nTendonForce\n")
+        for ft in Ft:
+            fichier.write(str(ft))
+            fichier.write(" ")
+
+        fichier.write("\nRealTime\n")
+        fichier.write(str(sol.real_time_to_optimize))
 
     # plt.plot(ft)
+    """
     plt.plot(muscle_length, label="lm")
     plt.plot(musculoTendonLength, label="lmt")
     plt.plot(tendon_length, label="lt")
 
     plt.legend()
     plt.show()
-
+    """
     # sol.print_cost()
     # --- Show results --- #
-    sol.animate(show_gravity_vector=False)
+    # sol.animate(show_gravity_vector=False)
 
 
 if __name__ == "__main__":

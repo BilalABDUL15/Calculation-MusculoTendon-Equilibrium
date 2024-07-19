@@ -142,26 +142,6 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         offset = 0.01175075667752834
         return c1 * casadi.exp(kt * (tendon_length_normalized - c2)) - c3 + offset
 
-    def fdamp(self, muscle_velocity_normalized):
-        return damp * muscle_velocity_normalized
-
-    def tangent_factor_calculation(self, point):
-        """Coefficient of the Tangent equation of muscle velocity force"""
-        return [
-            (d1 / casadi.log(10))
-            * (
-                (d2 * casadi.sqrt((d2 * point + d3) ** 2 + 1) + d2 + d3)
-                / ((d2 * point + d3) * casadi.sqrt((d2 * point + d3) ** 2 + 1) + (d2 * point + d3) ** 2 + 1)
-            ),
-            (d1 / casadi.log(10))
-            * (
-                (d2 * casadi.sqrt((d2 * point + d3) ** 2 + 1) + d2 + d3)
-                / ((d2 * point + d3) * casadi.sqrt((d2 * point + d3) ** 2 + 1) + (d2 * point + d3) ** 2 + 1)
-            )
-            * point
-            + self.fvm(point),
-        ]
-
     def muscle_joint_torque(self, activations, q, qdot) -> MX:
         self.check_q_size(q)
         self.check_qdot_size(qdot)

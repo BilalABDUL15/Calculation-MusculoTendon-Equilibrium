@@ -137,7 +137,7 @@ def prepare_ocp(
     n_shooting = 100
 
     # final_time = 0.01
-    final_time = 1
+    final_time = 0.2
 
     # Add objective functions
     objective_functions = ObjectiveList()
@@ -162,8 +162,8 @@ def prepare_ocp(
     x_bounds.add("q", bio_model.bounds_from_ranges("q"))
     x_bounds.add("qdot", bio_model.bounds_from_ranges("qdot"))
 
-    q0_init = -0.40
-    q0_final = -0.20
+    q0_init = -0.30
+    q0_final = -0.22
     q0_offset = 0.3
     x_bounds["q"].min += q0_offset
     x_bounds["q"].max += q0_offset
@@ -247,11 +247,10 @@ def main():
     sol = ocp.solve(Solver.IPOPT(show_online_optim=platform.system() == "Linux"))
     sol.print_cost()
 
-    """musculoTendonLength = []
+    musculoTendonLength = []
     tendon_length = []
     muscle_length = []
-    musculoTendonVelocity = []
-    length_muscle = []
+    muscle_velocity = []
 
     import matplotlib.pyplot as plt
     import numpy as np
@@ -265,25 +264,101 @@ def main():
     states = sol.decision_states(to_merge=SolutionMerge.NODES)
     all_q = states["q"]
     all_qdot = states["qdot"]
-    all_lm = states["lm"]
-    for q, qdot, lm in zip(all_q.T, all_qdot.T, all_lm.T):
+    all_activation = sol.decision_controls(to_merge=SolutionMerge.NODES)["muscles"]
+    q_tab = []
+    qdot_tab = []
+    activation_tab = []
+    Fm = []
+    Ft = []
+    cpt = 1
+
+    for q, qdot in zip(all_q.T, all_qdot.T):
         updated_kinematic_model = m.UpdateKinematicsCustom(q)
         m.updateMuscles(updated_kinematic_model, q)
         for group_idx in range(m.nbMuscleGroups()):
             for muscle_idx in range(m.muscleGroup(group_idx).nbMuscles()):
                 musc = m.muscleGroup(group_idx).muscle(muscle_idx)
+        optimalLength = musc.characteristics().optimalLength()
+        tendonSlackLength = musc.characteristics().tendonSlackLength()
+        pennationAngle = musc.characteristics().pennationAngle()
+        maximalForce = musc.characteristics().forceIsoMax()
         musculoTendonLength += [musc.musculoTendonLength(updated_kinematic_model, q, True)]
-        musculoTendonVelocity += [musc.velocity(m, q, qdot)]
-        muscle_length += [lm]
-        tendon_length += [(musculoTendonLength[-1] - muscle_length[-1] * np.cos(0.2094))]
 
-    model = BiorbdModel_musculotendon_equilibrium("models/test.bioMod")
+        muscle_length += [(musculoTendonLength[-1] - tendonSlackLength) / np.cos(pennationAngle)]
+        tendon_length += [tendonSlackLength]
+        q_tab.append(q[0])
+        qdot_tab.append(qdot[0])
+        if cpt % 5 == 0:
+            muscle_velocity += [musc.velocity(updated_kinematic_model, q, qdot) / np.cos(pennationAngle)]
+        cpt += 1
 
-    ft = [798.520 * model.ft(elem / 0.1430) for elem in tendon_length]
+    for activation in all_activation.T:
+        activation_tab.append(activation[0])
 
-    # plt.plot(ft)
+    for i in range(len(activation_tab)):
+        Fm.append(
+            maximalForce
+            * (
+                activation_tab[i]
+                * bio_model.fact(muscle_length[5 * i] / optimalLength)
+                * bio_model.fvm(muscle_velocity[i] / 5)
+                + bio_model.fpas(muscle_length[5 * i] / optimalLength)
+            )
+        )
+        Ft.append(bio_model.ft(tendon_length[-1] / tendonSlackLength))
+        print(Fm[-1] * np.cos(pennationAngle))
+
+    with open("without_equilibrium.txt", "w") as fichier:
+        fichier.write("\nMusculoTendonLength\n")
+        for lmt in musculoTendonLength:
+            fichier.write(str(lmt))
+            fichier.write(" ")
+
+        fichier.write("\nMuscle\n")
+        for lm in muscle_length:
+            fichier.write(str(lm))
+            fichier.write(" ")
+
+        fichier.write("\nTendon\n")
+        for lt in tendon_length:
+            fichier.write(str(lt))
+            fichier.write(" ")
+
+        fichier.write("\nQ\n")
+        for q in q_tab:
+            fichier.write(str(q))
+            fichier.write(" ")
+
+        fichier.write("\nQdot\n")
+        for qdot in qdot_tab:
+            fichier.write(str(qdot))
+            fichier.write(" ")
+
+        fichier.write("\nActivation\n")
+        for activation in activation_tab:
+            fichier.write(str(activation))
+            fichier.write(" ")
+
+        fichier.write("\nMuscleVelocity\n")
+        for vm in muscle_velocity:
+            fichier.write(str(vm))
+            fichier.write(" ")
+
+        fichier.write("\nMuscleForce\n")
+        for fm in Fm:
+            fichier.write(str(fm))
+            fichier.write(" ")
+
+        fichier.write("\nTendonForce\n")
+        for ft in Ft:
+            fichier.write(str(ft))
+            fichier.write(" ")
+
+        fichier.write("\nRealTime\n")
+        fichier.write(str(sol.real_time_to_optimize))
+
+    """plt.plot(musculoTendonLength, label="lmt")
     plt.plot(muscle_length, label="lm")
-    plt.plot(musculoTendonLength, label="lmt")
     plt.plot(tendon_length, label="lt")
 
     plt.legend()
@@ -291,7 +366,7 @@ def main():
 
     # sol.print_cost()
     # --- Show results --- #
-    sol.animate(show_gravity_vector=False)
+    # sol.animate(show_gravity_vector=False)
 
 
 if __name__ == "__main__":

@@ -397,10 +397,11 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
 
                 muscle_velocity_max = 5
                 musculoTendonLength = musc.musculoTendonLength(updated_kinematic_model, q, True).to_mx()
+                # musculoTendonLength = fabs(q)
 
                 # dlm, Muscular_force_current = self.Muscular_force_dlm_calculation_without_damping(
-                # dlm, Muscular_force_current = self.Muscular_force_dlm_calculation(
-                dlm, Muscular_force_current = self.Muscular_force_dlm_calculation_newton_method(
+                dlm, Muscular_force_current = self.Muscular_force_dlm_calculation(
+                    # dlm, Muscular_force_current = self.Muscular_force_dlm_calculation_newton_method(
                     lm,
                     musculoTendonLength,
                     optimalLength,
@@ -409,7 +410,7 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
                     maximalForce,
                     activation_muscles,
                     muscle_velocity_max,
-                    q,
+                    # q,
                 )
                 Muscular_force = vertcat(Muscular_force, Muscular_force_current)
                 """If there are Via point : """
