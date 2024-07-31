@@ -91,7 +91,8 @@ class DynamicsFunctions_musculotendon_equilibrium(DynamicsFunctions):
         nlp,
         q: MX | SX,
         qdot: MX | SX,
-        lm: MX | SX,
+        lm_normalized: MX | SX,
+        vm_c_normalized: MX | SX,
         muscle_activations: MX | SX,
         fatigue_states: MX | SX = None,
     ):
@@ -102,11 +103,32 @@ class DynamicsFunctions_musculotendon_equilibrium(DynamicsFunctions):
                 activations.append(muscle_activations[k] * (1 - fatigue_states[k]))
             else:
                 activations.append(muscle_activations[k])
-        return nlp.model.muscle_joint_torque(activations, q, qdot, lm)
+        return nlp.model.muscle_joint_torque(activations, q, qdot, lm_normalized, vm_c_normalized)
 
 
 class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
     """Musculotendon Equilibrium"""
+
+    def vm_normalized_calculation_without_damping(
+        self,
+        lm_normalized: MX,
+        tendon_length_normalized: MX,
+        pennationAngle: MX,
+        MaximalForce: MX,
+        activation: MX,
+        vm_c_normalized: MX,
+        q: MX,
+    ):
+        """
+        Calculation of vm when there is not any damping, so the activation is a singularity here.
+        """
+
+        fv_inv = (self.ft(tendon_length_normalized) / casadi.cos(pennationAngle) - self.fpas(lm_normalized)) / (
+            activation * self.fact(lm_normalized)
+        )
+
+        vm_normalized = 1 / d2 * (casadi.sinh(1 / d1 * (fv_inv - d4)) - d3)
+        return vm_normalized
 
     # Force passive definition = fpce
     # Warning modification of the equation du to sign issue when muscle_length_normalized is under 1
@@ -163,22 +185,134 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
             + self.fvm(point),
         ]
 
-    def muscle_joint_torque(self, activations, q, qdot, lm) -> MX:
+    def compute_vm_normalized(self, q: MX, qdot: MX, lm_normalized: MX, act: MX, vm_c_normalized: MX):
+
+        _, vm_normalized, _, _ = self.set_muscles_from_q(q, qdot, lm_normalized, act, vm_c_normalized)
+
+        return vm_normalized
+
+    def compute_vm_normalized_dm(self, t0, phases_dt, q: MX, qdot: MX, lm_normalized: MX, act: MX, vm_c_normalized: MX):
+        import numpy as np
+
+        def get_control(dt_norm, control):
+            if control.shape[1] == 1:
+                return control[:, 0]
+
+            return (control[:, 0] + (control[:, 1] - control[:, 0]) * dt_norm).T
+
+        q_mx = MX.sym("q", self.nb_q, 1)
+        qdot_mx = MX.sym("qdot", self.nb_qdot, 1)
+        lm_normalized_mx = MX.sym("lm", self.nb_muscles, 1)
+        act_mx = MX.sym("act", self.nb_muscles, 1)
+        vm_c_normalized_mx = MX.sym("vm_c", self.nb_muscles, 1)
+
+        _, vm_normalized, _, _ = self.set_muscles_from_q(q_mx, qdot_mx, lm_normalized_mx, act_mx, vm_c_normalized_mx)
+
+        dt = np.linspace(0, 1, q.shape[1])
+        return np.array(
+            casadi.Function("vm_n", [q_mx, qdot_mx, lm_normalized_mx, act_mx, vm_c_normalized_mx], [vm_normalized])(
+                q, qdot, lm_normalized, get_control(dt, act), get_control(dt, vm_c_normalized)
+            )
+        )
+
+    def compute_lt_normalized(self, lm_normalized: MX, musculoTendonLength: MX, pennationAngle: MX, optimalLength: MX):
+        optimalLength = MX(0.1)
+        pennationAngle = MX(0)
+        lm = lm_normalized * optimalLength
+        return musculoTendonLength - lm * casadi.cos(pennationAngle)
+
+    def Forces_calculation(
+        self,
+        tendon_length_normalized: MX,
+        MaximalForce: MX,
+        activation: MX,
+        lm_normalized: MX,
+        vm_normalized: MX,
+    ):
+        return MaximalForce @ (
+            self.fpas(lm_normalized)
+            + self.fdamp(vm_normalized)
+            + activation @ self.fact(lm_normalized) @ self.fvm(vm_normalized)
+        ), MaximalForce @ self.ft(tendon_length_normalized)
+
+    def muscle_joint_torque(self, activations, q, qdot, lm_normalized, vm_c_normalized) -> MX:
         self.check_q_size(q)
         self.check_qdot_size(qdot)
         self.check_muscle_size(activations)
-        jacobian_length, dlm, Muscular_force = self.set_muscles_from_q(q, qdot, lm, activations[0])
+        jacobian_length, _, Muscular_force, Tendon_force = self.set_muscles_from_q(
+            q, qdot, lm_normalized, activations[0], vm_c_normalized
+        )
         tau = -casadi.transpose(jacobian_length) @ Muscular_force
-        # tau2 = -casadi.transpose(jacobian_length) @ Tendon_force
-        return tau, dlm
+        return tau
 
-    def muscle_velocity_normalized_calculation(
+    def vm_normalized_calculation_newton(
         self,
-        muscle_length_normalized: MX,
+        lm_normalized,
+        tendon_length_normalized: MX,
+        pennationAngle: MX,
+        MaximalForce: MX,
+        activation: MX,
+        vm_c_normalized: MX,
+        q: MX,
+    ):
+        """
+        Use of Newton method to calculate vm_normalized. Indeed, lm is a state and the activation is a control,
+        so vm_normalized is the only unknown here. The equation in which the Newton Method is used is the substraction
+        between the Tendon force and the muscle force pennated. The inital guess is the previous vm_normalized
+        calculated.
+        """
+        from casadi import Function, rootfinder, vertcat, cos
+
+        vm_normalized_sym = MX.sym("vm_normalized")
+        tendon_length_normalized_sym = MX.sym("tendon_length_normalized")
+        muscle_length_normalized_sym = MX.sym("muscle_length_normalized")
+        q_sym = MX.sym("q")
+        act_sym = MX.sym("act")
+
+        Ft = MaximalForce @ self.ft(tendon_length_normalized_sym)
+        Fm_pen = (
+            MaximalForce
+            @ (
+                self.fpas(muscle_length_normalized_sym)
+                + act_sym @ self.fact(muscle_length_normalized_sym) @ self.fvm(vm_normalized_sym)
+                + self.fdamp(vm_normalized_sym)
+            )
+            * casadi.cos(pennationAngle)
+        )
+
+        g = (Ft - Fm_pen) ** 2
+
+        """
+        The first variable of the function is the unknown value whereas the others are needed to determine this one. 
+        To have more unknown values to calculate, need to use the vertcat function.
+        """
+        f_vm_normalized = Function(
+            "f", [vm_normalized_sym, muscle_length_normalized_sym, tendon_length_normalized_sym, q_sym, act_sym], [g]
+        )
+        newton_method = rootfinder(
+            "newton_method",
+            "newton",
+            f_vm_normalized,
+            {
+                "error_on_fail": False,
+                "enable_fd": False,
+                "print_in": False,
+                "print_out": False,
+                "max_num_dir": 10,
+            },
+        )
+        vm_normalized = newton_method(vm_c_normalized, lm_normalized, tendon_length_normalized, q, activation)
+        return vm_normalized
+
+    def vm_normalized_calculation_linear(
+        self,
+        lm_normalized,
         tendon_length_normalized: MX,
         pennationAngle: MX,
         activation: MX,
-        previous_vm_normalized: MX,
+        MaximalForce: MX,
+        vm_c_normalized: MX,
+        q: MX,
     ):
         """
         To calculate the velocity, we linearize the muscle velocity force around the t-1 value of muscle velocity.
@@ -187,234 +321,62 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         y = a * x + b
         """
 
-        alpha, beta = self.tangent_factor_calculation(previous_vm_normalized)
+        # vm_c_normalized = 0
+        alpha, beta = self.tangent_factor_calculation(vm_c_normalized)
         return (
             self.ft(tendon_length_normalized) / casadi.cos(pennationAngle)
-            - self.fpas(muscle_length_normalized)
-            - beta * activation[0] @ self.fact(muscle_length_normalized)
-        ) / (alpha * activation[0] @ self.fact(muscle_length_normalized) + damp)
+            - self.fpas(lm_normalized)
+            - beta * activation[0] @ self.fact(lm_normalized)
+        ) / (alpha * activation[0] @ self.fact(lm_normalized) + damp)
 
-    def muscle_velocity_calculation_newton(
-        self,
-        lm: MX,
-        optimalLength: MX,
-        tendonSlackLength: MX,
-        pennationAngle: MX,
-        activation: MX,
-        musculoTendonLength: MX,
-        q: MX,
-        dlm_previous_guess: MX = 1,
-        dlm_max: MX = 5,
-    ):
-        """
-        Use of Newton method to calculate dlm. Indeed, lm is a state and the activation is a control, so dlm is the only
-        unknown here. The equation in which the Newton Method is used is the substraction between the Tendon force and
-        the muscle force pennated. The inital guess is the previous dlm calculated.
-        """
-        from casadi import Function, rootfinder, vertcat, cos
-
-        dlm = MX.sym("dlm")
-        tendon_length = musculoTendonLength - lm * casadi.cos(pennationAngle)
-
-        Ft = self.ft((tendon_length) / tendonSlackLength)
-        Fm_pen = (
-            self.fpas(lm / optimalLength)
-            + activation @ self.fact(lm / optimalLength) @ self.fvm(dlm / dlm_max)
-            + self.fdamp(dlm / dlm_max)
-        ) * casadi.cos(pennationAngle)
-        g = (Ft - Fm_pen) ** 2
-        """
-        The first variable of the function is the unknown value whereas the others are needed to determine this one. To have more 
-        unknown values to calculate, need to use the vertcat function.
-        """
-        f_dlm = Function("f", [dlm, lm, q, activation], [g])
-        newton_method = rootfinder(
-            "newton_method",
-            "newton",
-            f_dlm,
-            {
-                "error_on_fail": False,
-                "enable_fd": True,
-                # "print_in": True,
-                # "print_out": True,
-            },
-        )
-        dlm = newton_method(dlm_previous_guess, lm, q, activation)
-        return dlm
-
-    def Muscular_force_dlm_calculation_without_damping(
-        self,
-        lm,
-        musculoTendonLength: MX,
-        optimalLength: MX,
-        tendonSlackLength: MX,
-        pennationAngle: MX,
-        maximalForce: MX,
-        activation: MX,
-        muscle_velocity_max: MX = 5,
-    ):
-        """
-        Calculation of dlm when there is not any damping, so the activation is a singularity here.
-        """
-        tendon_length = musculoTendonLength - lm * casadi.cos(pennationAngle)
-
-        fv_inv = (
-            self.ft(tendon_length / tendonSlackLength) / casadi.cos(pennationAngle) - self.fpas(lm / optimalLength)
-        ) / (activation * self.fact(lm / optimalLength))
-
-        dlm = 1 / d2 * (casadi.sinh(1 / d1 * (fv_inv - d4)) - d3)
-        Muscular_force = maximalForce @ (
-            self.fpas(lm / optimalLength)
-            + activation @ self.fact(lm / optimalLength) @ self.fvm(dlm / muscle_velocity_max)
-        )
-
-        return dlm, Muscular_force
-
-    def Muscular_force_dlm_calculation_newton_method(
-        self,
-        lm,
-        musculoTendonLength: MX,
-        optimalLength: MX,
-        tendonSlackLength: MX,
-        pennationAngle: MX,
-        maximalForce: MX,
-        activation: MX,
-        muscle_velocity_max: MX = 5,
-        q: MX = 0,
-    ):
-        """
-        Calculation of the muscle Force when dlm is calculated with the Newton Method. First, dlm is determined with
-        an arbitrary initial guess. Secondly, dlm is calculated reccursively with the previous dlm as initial guess.
-        """
-        tendon_length = musculoTendonLength - lm * casadi.cos(pennationAngle)
-        dlm = self.muscle_velocity_calculation_newton(
-            lm=lm,
-            optimalLength=optimalLength,
-            tendonSlackLength=tendonSlackLength,
-            pennationAngle=pennationAngle,
-            activation=activation,
-            musculoTendonLength=musculoTendonLength,
-            dlm_max=MX(muscle_velocity_max),
-            q=q,
-        )
-        dlm = self.muscle_velocity_calculation_newton(
-            lm=lm,
-            optimalLength=optimalLength,
-            tendonSlackLength=tendonSlackLength,
-            pennationAngle=pennationAngle,
-            activation=activation,
-            musculoTendonLength=musculoTendonLength,
-            dlm_previous_guess=dlm,
-            dlm_max=MX(muscle_velocity_max),
-            q=q,
-        )
-
-        Muscular_force = maximalForce @ (
-            self.fpas(lm / optimalLength)
-            - self.fdamp(dlm / muscle_velocity_max)
-            + activation @ self.fact(lm / optimalLength) @ self.fvm(dlm / muscle_velocity_max)
-        )
-
-        return dlm, Muscular_force
-
-    def Muscular_force_dlm_calculation(
-        self,
-        lm,
-        musculoTendonLength: MX,
-        optimalLength: MX,
-        tendonSlackLength: MX,
-        pennationAngle: MX,
-        maximalForce: MX,
-        activation: MX,
-        muscle_velocity_max: MX = 5,
-    ):
-
-        tendon_length = musculoTendonLength - lm * casadi.cos(pennationAngle)
-
-        dlm = (
-            self.muscle_velocity_normalized_calculation(
-                lm / optimalLength,
-                tendon_length / tendonSlackLength,
-                pennationAngle,
-                activation,
-                MX(0),
-            )
-            * muscle_velocity_max
-        )
-        dlm = (
-            self.muscle_velocity_normalized_calculation(
-                lm / optimalLength,
-                tendon_length / tendonSlackLength,
-                pennationAngle,
-                activation,
-                dlm / muscle_velocity_max,
-                # we need to linearize around the previous vm normalized, so we need to divide by vm_max
-            )
-            * muscle_velocity_max
-        )
-        Muscular_force = maximalForce @ (
-            self.fpas(lm / optimalLength)
-            + self.fdamp(dlm / muscle_velocity_max)
-            + activation @ self.fact(lm / optimalLength) @ self.fvm(dlm / muscle_velocity_max)
-        )
-
-        return dlm, Muscular_force
-
-    def Muscular_force_calculation_direct_method(
-        self,
-        lm,
-        musculoTendonLength: MX,
-        optimalLength: MX,
-        tendonSlackLength: MX,
-        pennationAngle: MX,
-        maximalForce: MX,
-        activation: MX,
-        muscle_velocity_max: MX = 5,
-    ):
-        tendon_length = musculoTendonLength - lm * casadi.cos(pennationAngle)
-        dlm = 1
-        Muscular_force = maximalForce @ (
-            self.fpas(lm / optimalLength)
-            + self.fdamp(dlm / muscle_velocity_max)
-            + activation @ self.fact(lm / optimalLength) @ self.fvm(dlm / muscle_velocity_max)
-        )
-        return dlm, Muscular_force
-
-    def set_muscles_from_q(self, q, qdot, lm, activation_muscles):
+    def set_muscles_from_q(self, q, qdot, lm_normalized, activation, vm_c_normalized):
         m = self.model
         # data = MX(m.nbMuscles(), 1)
         Muscular_force = []
-        updated_kinematic_model = m.UpdateKinematicsCustom(q)
-        m.updateMuscles(updated_kinematic_model, q)
+        Tendon_force = []
+        updated_kinematic_model = m.UpdateKinematicsCustom(q, qdot)
+        m.updateMuscles(updated_kinematic_model, q, qdot)
         length_jacobian = m.musclesLengthJacobian(m, q, False).to_mx()
         for group_idx in range(m.nbMuscleGroups()):
             for muscle_idx in range(m.muscleGroup(group_idx).nbMuscles()):
+
+                updated_kinematic_model = m.UpdateKinematicsCustom(q, qdot)
+                m.updateMuscles(updated_kinematic_model, q, qdot)
+
                 musc = m.muscleGroup(group_idx).muscle(muscle_idx)
+
                 optimalLength = musc.characteristics().optimalLength().to_mx()
                 tendonSlackLength = musc.characteristics().tendonSlackLength().to_mx()
                 pennationAngle = musc.characteristics().pennationAngle().to_mx()
-                maximalForce = musc.characteristics().forceIsoMax().to_mx()
+                MaximalForce = musc.characteristics().forceIsoMax().to_mx()
 
-                muscle_velocity_max = 5
                 musculoTendonLength = musc.musculoTendonLength(updated_kinematic_model, q, True).to_mx()
-                # musculoTendonLength = fabs(q)
+                tendon_length_normalized = (
+                    musculoTendonLength - lm_normalized * optimalLength * casadi.cos(pennationAngle)
+                ) / tendonSlackLength
 
-                # dlm, Muscular_force_current = self.Muscular_force_dlm_calculation_without_damping(
-                dlm, Muscular_force_current = self.Muscular_force_dlm_calculation(
-                    # dlm, Muscular_force_current = self.Muscular_force_dlm_calculation_newton_method(
-                    lm,
-                    musculoTendonLength,
-                    optimalLength,
-                    tendonSlackLength,
-                    pennationAngle,
-                    maximalForce,
-                    activation_muscles,
-                    muscle_velocity_max,
-                    # q,
+                # vm_normalized = self.vm_normalized_calculation_without_damping(
+                # vm_normalized = self.vm_normalized_calculation_linear(
+                vm_normalized = self.vm_normalized_calculation_newton(
+                    lm_normalized=lm_normalized,
+                    tendon_length_normalized=tendon_length_normalized,
+                    pennationAngle=pennationAngle,
+                    MaximalForce=MaximalForce,
+                    activation=activation,
+                    vm_c_normalized=vm_c_normalized,
+                    q=q,
+                )
+                Muscular_force_current, Tendon_force_current = self.Forces_calculation(
+                    tendon_length_normalized=tendon_length_normalized,
+                    MaximalForce=MaximalForce,
+                    activation=activation,
+                    lm_normalized=lm_normalized,
+                    vm_normalized=vm_normalized,
                 )
                 Muscular_force = vertcat(Muscular_force, Muscular_force_current)
+                Tendon_force = vertcat(Tendon_force, Tendon_force_current)
                 """If there are Via point : """
                 # for k, pts in enumerate(musc.position().pointsInGlobal()):
                 #     data.append(pts.to_mx())
 
-        return length_jacobian, dlm, Muscular_force
+        return length_jacobian, vm_normalized, Muscular_force, Tendon_force
