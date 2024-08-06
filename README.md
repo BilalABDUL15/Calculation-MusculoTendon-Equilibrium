@@ -17,12 +17,13 @@ f_{M0} \left( af_{act}(\tilde{l_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{l_M}) + \b
 ```
 with 
 
-\documentclass{article}
-\begin{document}
-
-\begin{enumerate}
-  \item $f_M$ :
-\end{enumerate}
-
-\end{document}
-
+1. $a$ : activation of the muscle
+2. $\tilde{l_M}$ : muscle length normalized
+3. $\tilde{l_T}$ : tendon length normalized
+4. $\tilde{v_M}$ : muscle velocity normalized
+5. $f_{M0}$ : maximal isometric force
+6. $f_{act}$ : muscle activation force
+7. $f_V$ : muscle velocity force
+8. $f_{pas}$ : muscle passive force
+9. $\beta$ : coefficient of damping = 0.1
+10. $f_T$ : tendon force
