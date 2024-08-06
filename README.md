@@ -19,7 +19,7 @@ f_{M0} \left( actf_{act}(\tilde{l_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{l_M}) + 
 
 with 
 
-- $act$ : activation of the muscle
+- $act$ : muscle activation
 - $\tilde{l_M}$ : muscle length normalized
 - $\tilde{l_T}$ : tendon length normalized
 - $\tilde{v_M}$ : muscle velocity normalized
