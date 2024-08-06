@@ -56,7 +56,7 @@ If we note
 ```
 Then we have 
 ```math
-\frac{ \frac{\frac{l_{MT} - l_M \cos{\alpha}}{\ell_T S}} {\cos{\alpha}} - f_{pas}(\tilde{\ell}_M) - a \theta f_{act}(\tilde{l_M})}{\gamma a f_{act}(\tilde{l_M}) + \beta}
+\frac{ f_T(\frac{\frac{l_{MT} - l_M \cos{\alpha}}{\ell_T S}} {\cos{\alpha}}) - f_{pas}(\tilde{\ell}_M) - a \theta f_{act}(\tilde{l_M})}{\gamma a f_{act}(\tilde{l_M}) + \beta}
 ```
 
 
