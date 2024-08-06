@@ -61,3 +61,10 @@ Then we have
 
 
 We can integrate this equation and obtain the values of our state $\tilde{l_M}$.
+
+
+Source doc:
+$\url{https://github.com/Gintokissou/Calculation-MusculoTendon-Equilibrium/edit/main/README.md}$
+
+
+
