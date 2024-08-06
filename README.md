@@ -52,7 +52,7 @@ To determine $\tilde{v_M}$, we will first calculate the tangent of the current $
 
 If we note 
 ```math 
-\tilde{v}_M = \gamma \tilde{v}_M + \theta
+f_V(\tilde{v}_M) = \gamma \tilde{v}_M + \theta
 ```
 Then we have 
 ```math
