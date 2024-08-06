@@ -60,7 +60,7 @@ Then we have
 ```
 
 
-We can then integrate this equation and obtain the value of our state $\tilde{l_M}$.
+We can then integrate this equation and obtain the value of our state $\tilde{\ell_M}$.
 
 
 ### Source Article:
