@@ -29,7 +29,7 @@ with
 - $\beta$ : coefficient of damping = 0.1
 - $f_T$ : tendon force
 
-Moreover, we also have the equality $\tilde{l_{MT}}$ = $\tilde{l_M}$ $\cos{\alpha}$ + $\tilde{l_T}$
+Moreover, we also have the equality $\tilde{l_{MT}}$ = $\tilde{l_M}\cos{\alpha}$ + $\tilde{l_T}$
 
 Because $act$ is a control and $\tilde{l_M}$ is a state, the only unknown here is $\tilde{v_M}$. So two methods have been proposed to calculate $\tilde{v_M}$.
 
