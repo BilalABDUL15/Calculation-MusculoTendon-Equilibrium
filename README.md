@@ -29,3 +29,4 @@ with
 - $f_{pas}$ : muscle passive force
 - $\beta$ : coefficient of damping = 0.1
 - $f_T$ : tendon force
+
