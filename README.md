@@ -13,14 +13,14 @@ The equilibrium is calculated using De Groote's and Millard's equations. The mod
 We have the differential equation for normalized muscle length, which represents the musculotendon equilibrium:
 
 ```math
-f_{M0} \left( actf_{act}(\tilde{l_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{l_M}) + \beta \tilde{v_M} \right) \cos a - f_{M0} f_T(\tilde{l_T}) = 0
+f_{M0} \left( actf_{act}(\tilde{\ell_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{\ell_M}) + \beta \tilde{v_M} \right) \cos a - f_{M0} f_T(\tilde{\ell_T}) = 0
 ```
 
 with 
 
 - $act$ : muscle activation
-- $\tilde{l_M}$ : muscle length normalized
-- $\tilde{l_T}$ : tendon length normalized
+- $\tilde{\ell_M}$ : muscle length normalized
+- $\tilde{\ell_T}$ : tendon length normalized
 - $\tilde{v_M}$ : muscle velocity normalized
 - $f_{M0}$ : maximal isometric force
 - $f_{act}$ : muscle activation force
@@ -56,7 +56,7 @@ If we note
 ```
 Then we have 
 ```math
-\frac{  \frac{f_T \left(\frac{l_{MT} - l_M \cos{\alpha}}{l_{TS}} \right)} {\cos{\alpha}} - f_{pas}(\tilde{\ell}_M) - a \theta f_{act}(\tilde{l_M})}{\gamma a f_{act}(\tilde{l_M}) + \beta}
+\frac{  \frac{f_T \left(\frac{\ell_{MT} - \ell_M \cos{\alpha}}{\ell_{TS}} \right)} {\cos{\alpha}} - f_{pas}(\tilde{\ell_M}) - a \theta f_{act}(\tilde{\ell_M})}{\gamma a f_{act}(\tilde{\ell_M}) + \beta}
 ```
 
 
