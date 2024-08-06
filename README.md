@@ -65,8 +65,11 @@ We can integrate this equation and obtain the values of our state $\tilde{l_M}$.
 
 # Source Article:
 Millard's article : https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3705831/pdf/bio_135_2_021005.pdf
+
 De Groote's article : https://link.springer.com/content/pdf/10.1007/s10439-016-1591-9.pdf
+
 Sartori article : https://www.biorxiv.org/content/10.1101/2024.05.14.594110v1.full.pdf
+
 
 
 
