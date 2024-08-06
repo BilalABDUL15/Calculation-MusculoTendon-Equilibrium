@@ -13,7 +13,7 @@ Controls: u includes muscle activation and normalized muscle velocity control vm
 For this method, thanks to Millard's equations we have the diffential equations of muscle length normalized which represent the musculotendon equilibrium:
 
 ```math
-f_M \left( af_{act}(\tilde{l}_M) f_V(\tilde{v}_M) + f_{pas}(\tilde{l}_M) + \beta \tilde{v}_M \right) \cos a - f_M f_T(\tilde{l}_T) = 0
+f_{M0} \left( af_{act}(\tilde{l_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{l_M}) + \beta \tilde{v_M} \right) \cos a - f_{M0} f_T(\tilde{l_T}) = 0
 ```
 with 
 
