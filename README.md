@@ -4,26 +4,27 @@ This repository provides two methods for calculating musculotendon equilibrium u
 
 The equilibrium is calculated using De Groote's and Millard's equations. The model includes a musculotendon system with slight damping.
 
-States: x includes joint position q, joint velocity qdot​, and normalized muscle length lm_normalized​.
+**States**: \(x\) includes joint position \(q\), joint velocity \(\dot{q}\), and normalized muscle length \(\tilde{l}_M\).
 
-Controls: u includes muscle activation and normalized muscle velocity control vm_c_normalized​.
+**Controls**: \(u\) includes muscle activation and normalized muscle velocity control \(\tilde{v}_M\).
 
 # Method 1: Calculation of Equilibrium Using Gradient Descent
 
-For this method, thanks to Millard's equations we have the diffential equations of muscle length normalized which represent the musculotendon equilibrium:
+For this method, using Millard's equations, we have the differential equation for normalized muscle length, which represents the musculotendon equilibrium:
 
-```math
-f_{M0} \left( af_{act}(\tilde{l_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{l_M}) + \beta \tilde{v_M} \right) \cos a - f_{M0} f_T(\tilde{l_T}) = 0
-```
-with 
+$$
+f_{M0} \left( a f_{act}(\tilde{l}_M) f_V(\tilde{v}_M) + f_{pas}(\tilde{l}_M) + \beta \tilde{v}_M \right) \cos a - f_{M0} f_T(\tilde{l}_T) = 0
+$$
 
-- $a$ : activation of the muscle
-- $\tilde{l_M}$ : muscle length normalized
-- $\tilde{l_T}$ : tendon length normalized
-- $\tilde{v_M}$ : muscle velocity normalized
-- $f_{M0}$ : maximal isometric force
-- $f_{act}$ : muscle activation force
-- $f_V$ : muscle velocity force
-- $f_{pas}$ : muscle passive force
-- $\beta$ : coefficient of damping = 0.1
-- $f_T$ : tendon force
+where:
+
+- \(a\): Muscle activation
+- \(\tilde{l}_M\): Normalized muscle length
+- \(\tilde{l}_T\): Normalized tendon length
+- \(\tilde{v}_M\): Normalized muscle velocity
+- \(f_{M0}\): Maximal isometric force
+- \(f_{act}\): Muscle activation force
+- \(f_V\): Muscle velocity force
+- \(f_{pas}\): Muscle passive force
+- \(\beta\): Coefficient of damping (\(\beta = 0.1\))
+- \(f_T\): Tendon force
