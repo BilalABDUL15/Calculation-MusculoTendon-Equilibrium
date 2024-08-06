@@ -4,9 +4,9 @@ This repository provides two methods for calculating musculotendon equilibrium u
 
 The equilibrium is calculated using De Groote's and Millard's equations. The model includes a musculotendon system with slight damping.
 
-States: x includes joint position q, joint velocity q˙​, and normalized muscle length lm,normalizedlm,normalized​.
+States: x includes joint position q, joint velocity qdot​, and normalized muscle length lm_normalized​.
 
-Controls: uu includes muscle activation and normalized muscle velocity control vm,normalizedvm,normalized​.
+Controls: u includes muscle activation and normalized muscle velocity control vm_c_normalized​.
 
 # Method 1: Calculation of Equilibrium Using Gradient Descent
 
