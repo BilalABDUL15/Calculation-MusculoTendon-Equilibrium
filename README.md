@@ -46,6 +46,14 @@ Finally, we impose an equality between the next $\tilde{v_M}_{control}$ and the 
 This ensures that the value of $\tilde{l_M}$ is correctly transmitted to the next interval.
 
 # Method 2 : Calculation of Equilibrium Linear $f_V$
-To determine $\tilde{v_M}$, we will first calculate the tangent of the current $\tilde{v_M}_{control}$ of $f_V$ function. Thanks to this, we will be able to linearize our differential equation. We then obtein this:
+To determine $\tilde{v_M}$, we will first calculate the tangent of the current $\tilde{v_M}_{control}$ of $f_V$ function. Thanks to this, we will be able to linearize our differential equation.
+
+If we note $$ \tilde{v}_M = \gamma \tilde{v}_M + \theta $$
+Then we have 
+```math
+\frac{\ell_M T - \ell_M \cos \alpha}{\ell_T S} \cos \alpha - f_{PE}(\tilde{\ell}_M) - a \theta \text{fact}(\tilde{\ell}_M)
+\frac{\gamma a \text{fact}(\tilde{\ell}_M) + \beta}
+```
+
 
 We can integrate this equation and obtain the values of our state $\tilde{l_M}$.
