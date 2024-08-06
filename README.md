@@ -15,4 +15,10 @@ For this method, thanks to Millard's equations we have the diffential equations 
 ```math
 f_M \left( f_L(\tilde{l}_M) f_V(\tilde{v}_M) + f_{PE}(\tilde{l}_M) + b \tilde{v}_M \right) \cos a - f_M f_T(\tilde{l}_T) = 0
 ```
+with 
 
+```math
+\begin{enumerate}
+f_M :
+\end{enumerate}
+```
