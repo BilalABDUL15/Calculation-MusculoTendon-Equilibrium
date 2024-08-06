@@ -8,21 +8,24 @@ The equilibrium is calculated using De Groote's and Millard's equations. The mod
 
 **Controls**: \(u\) includes muscle activation and normalized muscle velocity control \(\tilde{v}_M\).
 
+
 # Method 1: Calculation of Equilibrium Using Gradient Descent
 
-For this method, using Millard's equations, the differential equation for normalized muscle length representing the musculotendon equilibrium is:
+For this method, thanks to Millard's equations we have the diffential equations of muscle length normalized which represent the musculotendon equilibrium:
 
-![Equation](https://latex.codecogs.com/svg.latex?f_{M0}%20\left%20(a%20f_{act}(\tilde{l}_M)%20f_V(\tilde{v}_M)%20%2B%20f_{pas}(\tilde{l}_M)%20%2B%20\beta%20\tilde{v}_M%20\right%20)\cos%20a%20-%20f_{M0}%20f_T(\tilde{l}_T)%20%3D%200)
+math
+f_{M0} \left( af_{act}(\tilde{l_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{l_M}) + \beta \tilde{v_M} \right) \cos a - f_{M0} f_T(\tilde{l_T}) = 0
 
-where:
 
-- \(a\): Muscle activation
-- \(\tilde{l}_M\): Normalized muscle length
-- \(\tilde{l}_T\): Normalized tendon length
-- \(\tilde{v}_M\): Normalized muscle velocity
-- \(f_{M0}\): Maximal isometric force
-- \(f_{act}\): Muscle activation force
-- \(f_V\): Muscle velocity force
-- \(f_{pas}\): Muscle passive force
-- \(\beta\): Coefficient of damping (\(\beta = 0.1\))
-- \(f_T\): Tendon force
+with 
+
+- $a$ : activation of the muscle
+- $\tilde{l_M}$ : muscle length normalized
+- $\tilde{l_T}$ : tendon length normalized
+- $\tilde{v_M}$ : muscle velocity normalized
+- $f_{M0}$ : maximal isometric force
+- $f_{act}$ : muscle activation force
+- $f_V$ : muscle velocity force
+- $f_{pas}$ : muscle passive force
+- $\beta$ : coefficient of damping = 0.1
+- $f_T$ : tendon force
