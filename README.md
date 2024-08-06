@@ -13,9 +13,9 @@ The equilibrium is calculated using De Groote's and Millard's equations. The mod
 
 For this method, using Millard's equations, we have the differential equation for normalized muscle length, which represents the musculotendon equilibrium:
 
-math
+```math
 f_{M0} \left( af_{act}(\tilde{l_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{l_M}) + \beta \tilde{v_M} \right) \cos a - f_{M0} f_T(\tilde{l_T}) = 0
-
+```
 
 with 
 
