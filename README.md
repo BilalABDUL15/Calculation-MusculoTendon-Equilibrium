@@ -39,7 +39,13 @@ To ensure that $\tilde{v_M}_{control}$  is accurate, we introduce a multinode co
 
 Without this constraint, the initial guess at the beginning of each calculation interval would be random. By integrating the dynamics over the interval, we obtain the state values at the last node of the interval. 
 
-We then calculate $\tilde{l_M}$ at this node using these states and the current $\tilde{v_M}_{control}$. Finally, we impose an equality between the next $\tilde{v_M}_{control}$ and the calculated $\tilde{l_M}$.
+We then calculate $\tilde{l_M}$ at this node using these states and the current $\tilde{v_M}_{control}$. 
+
+Finally, we impose an equality between the next $\tilde{v_M}_{control}$ and the calculated $\tilde{l_M}$.
 
 This ensures that the value of $\tilde{l_M}$ is correctly transmitted to the next interval.
 
+# Method 2 : Calculation of Equilibrium Linear $f_V$
+To determine $\tilde{v_M}$, we will first calculate the tangent of the current $\tilde{v_M}_{control}$ of $f_V$ function. Thanks to this, we will be able to linearize our differential equation. We then obtein this:
+
+We can integrate this equation and obtain the values of our state $\tilde{l_M}$.
