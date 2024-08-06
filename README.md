@@ -29,6 +29,8 @@ with
 - $\beta$ : coefficient of damping = 0.1
 - $f_T$ : tendon force
 
+Moreover, we also have the equality $\tilde{l_{MT}}$ = $\tilde{l_M}$$\cos{\alpha}}$ + $\tilde{l_T}$
+
 Because $act$ is a control and $\tilde{l_M}$ is a state, the only unknown here is $\tilde{v_M}$. So two methods have been proposed to calculate $\tilde{v_M}$.
 
 
@@ -48,7 +50,10 @@ This ensures that the value of $\tilde{l_M}$ is correctly transmitted to the nex
 # Method 2 : Calculation of Equilibrium Linear $f_V$
 To determine $\tilde{v_M}$, we will first calculate the tangent of the current $\tilde{v_M}_{control}$ of $f_V$ function. Thanks to this, we will be able to linearize our differential equation.
 
-If we note ```math \tilde{v}_M = \gamma \tilde{v}_M + \theta ```
+If we note 
+```math 
+\tilde{v}_M = \gamma \tilde{v}_M + \theta
+```
 Then we have 
 ```math
 \frac{\ell_M T - \ell_M \cos \alpha}{\ell_T S} \cos \alpha - f_{PE}(\tilde{\ell}_M) - a \theta \text{fact}(\tilde{\ell}_M)
