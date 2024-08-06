@@ -17,8 +17,12 @@ f_{M0} \left( af_{act}(\tilde{l_M}) f_V(\tilde{v_M}) + f_{pas}(\tilde{l_M}) + \b
 ```
 with 
 
-```math
+\documentclass{article}
+\begin{document}
+
 \begin{enumerate}
-f_M :
+  \item $f_M$ :
 \end{enumerate}
-```
+
+\end{document}
+
