@@ -1,6 +1,7 @@
 import platform
 
 import biorbd_casadi as biorbd
+import biorbd as biorbd_eigen
 from biorbd_casadi import (
     GeneralizedCoordinates,
     GeneralizedVelocity,
@@ -8,10 +9,17 @@ from biorbd_casadi import (
     GeneralizedAcceleration,
 )
 
+
 import casadi
 from casadi import SX, MX, vertcat, horzcat, norm_fro, Function, jacobian, fabs, norm_2
 
 from typing import Callable, Any
+
+
+from bioptim import CostType, SolutionMerge
+import numpy as np
+import matplotlib.pyplot as plt
+
 
 from biorbd_casadi import (
     GeneralizedCoordinates,
@@ -42,8 +50,6 @@ from bioptim import (
     DynamicsEvaluation,
     PhaseDynamics,
 )
-
-"""https://static-content.springer.com/esm/art%3A10.1007%2Fs10439-016-1591-9/MediaObjects/10439_2016_1591_MOESM1_ESM.pdf"""
 
 
 # ft(lt) parameters
@@ -85,6 +91,15 @@ d4 = 0.886
 damp = 0.1
 
 
+class Method_VM_Calculation:
+    """Which Method we want to use to calculate the vm_normalized"""
+
+    DAMPING_NEWTON = "DAMPING_NEWTON_METHOD_VM"
+    DAMPING_LINEAR = "DAMPING_LINEAR_METHOD_VM"
+    WTHOUT_DAMPING = "WITHOUT_DAMPING_METHOD_VM"
+    method_used_vm = None
+
+
 class DynamicsFunctions_musculotendon_equilibrium(DynamicsFunctions):
     @staticmethod
     def compute_tau_from_muscle(
@@ -120,7 +135,7 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         q: MX,
     ):
         """
-        Calculation of vm when there is not any damping, so the activation is a singularity here.
+        Calculation of vm when there is no damping, so the activation is a singularity here (by dividing by 0).
         """
 
         fv_inv = (self.ft(tendon_length_normalized) / casadi.cos(pennationAngle) - self.fpas(lm_normalized)) / (
@@ -130,14 +145,14 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         vm_normalized = 1 / d2 * (casadi.sinh(1 / d1 * (fv_inv - d4)) - d3)
         return vm_normalized
 
-    # Force passive definition = fpce
-    # Warning modification of the equation du to sign issue when muscle_length_normalized is under 1
     def fpas(self, muscle_length_normalized):
+        """Force passive definition = fpce
+        Warning modification of the equation du to sign issue when muscle_length_normalized is under 1 !!!"""
         offset = (casadi.exp(kpe * (0 - 1) / e0) - 1) / (casadi.exp(kpe) - 1)
         return (casadi.exp(kpe * (muscle_length_normalized - 1) / e0) - 1) / (casadi.exp(kpe) - 1) - offset
 
-    # Force active definition = flce
     def fact(self, muscle_length_normalized):
+        """Force active definition = flce"""
         return (
             b11
             * casadi.exp(
@@ -149,8 +164,8 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
             * casadi.exp((-0.5) * (muscle_length_normalized - b23) ** 2 / ((b33 + b43 * muscle_length_normalized) ** 2))
         )
 
-    # Muscle force velocity equation = fvce
     def fvm(self, muscle_velocity_normalized):
+        """Muscle force velocity equation = fvce"""
         return (
             d1
             * casadi.log(
@@ -159,17 +174,33 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
             + d4
         )
 
-    # ft(lt) tendon force calculation with tendon length normalized
     def ft(self, tendon_length_normalized):
-        """Offset here because without it we have ft(1) < 0 whereas it should be 0."""
+        """
+        ft(lt) tendon force calculation with tendon length normalized
+        Offset here because without it we have ft(1) < 0 whereas it should be 0.
+        """
         offset = 0.01175075667752834
         return c1 * casadi.exp(kt * (tendon_length_normalized - c2)) - c3 + offset
 
     def fdamp(self, muscle_velocity_normalized):
+        """
+        Damping force Definition
+        """
         return damp * muscle_velocity_normalized
 
     def tangent_factor_calculation(self, point):
-        """Coefficient of the Tangent equation of muscle velocity force"""
+        """
+
+        Calculation of the coefficient of the Tangent equation of muscle velocity force to linearize fvm around
+        a point.
+
+        ---------------------------------------------------------------------------------------
+        Paramameters:
+        point : muscle velocity normalize at which we want to compute the tangent factor
+
+        return coefficients of the linearize form of fvm => y = a * x + b return a,b
+        ---------------------------------------------------------------------------------------
+        """
         return [
             (d1 / casadi.log(10))
             * (
@@ -186,13 +217,28 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         ]
 
     def compute_vm_normalized(self, q: MX, qdot: MX, lm_normalized: MX, act: MX, vm_c_normalized: MX):
+        """
+        Calculation of the muscle velocity intern.
+        ---------------------------------------------------------------------------------------
+        Paramameters:
+        q,qdot,lm_normalized,act : state
+        act : muscle activation
+        vm_c_normalized : muscle velocity normalized control. We use this value as an initial guess for our different
+        method of calculation of the muscle velocity intern.
 
-        _, vm_normalized, _, _ = self.set_muscles_from_q(q, qdot, lm_normalized, act, vm_c_normalized)
+        Return the value of muscle velocity intern (Calculated)
+        ---------------------------------------------------------------------------------------
+        """
+
+        _, vm_normalized, _, _ = self.Muscles_parameters(q, qdot, lm_normalized, act, vm_c_normalized)
 
         return vm_normalized
 
     def compute_vm_normalized_dm(self, t0, phases_dt, q: MX, qdot: MX, lm_normalized: MX, act: MX, vm_c_normalized: MX):
-        import numpy as np
+        """
+        Function which is used to plot the value of the muscle velocity intern to compare it to the value of the muscle
+        velocity normalized control.
+        """
 
         def get_control(dt_norm, control):
             if control.shape[1] == 1:
@@ -206,7 +252,7 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         act_mx = MX.sym("act", self.nb_muscles, 1)
         vm_c_normalized_mx = MX.sym("vm_c", self.nb_muscles, 1)
 
-        _, vm_normalized, _, _ = self.set_muscles_from_q(q_mx, qdot_mx, lm_normalized_mx, act_mx, vm_c_normalized_mx)
+        _, vm_normalized, _, _ = self.Muscles_parameters(q_mx, qdot_mx, lm_normalized_mx, act_mx, vm_c_normalized_mx)
 
         dt = np.linspace(0, 1, q.shape[1])
         return np.array(
@@ -215,11 +261,59 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
             )
         )
 
-    def compute_lt_normalized(self, lm_normalized: MX, musculoTendonLength: MX, pennationAngle: MX, optimalLength: MX):
-        optimalLength = MX(0.1)
-        pennationAngle = MX(0)
-        lm = lm_normalized * optimalLength
-        return musculoTendonLength - lm * casadi.cos(pennationAngle)
+    def Muscle_force_dm(self, t0, phases_dt, q: MX, qdot: MX, lm_normalized: MX, act: MX, vm_c_normalized: MX):
+        """
+        Function which is used to plot the value of the muscle force pennated.
+        """
+
+        def get_control(dt_norm, control):
+            if control.shape[1] == 1:
+                return control[:, 0]
+
+            return (control[:, 0] + (control[:, 1] - control[:, 0]) * dt_norm).T
+
+        q_mx = MX.sym("q", self.nb_q, 1)
+        qdot_mx = MX.sym("qdot", self.nb_qdot, 1)
+        lm_normalized_mx = MX.sym("lm", self.nb_muscles, 1)
+        act_mx = MX.sym("act", self.nb_muscles, 1)
+        vm_c_normalized_mx = MX.sym("vm_c", self.nb_muscles, 1)
+
+        _, _, Muscular_force, _ = self.Muscles_parameters(q_mx, qdot_mx, lm_normalized_mx, act_mx, vm_c_normalized_mx)
+        pennationAngle = self.model.muscleGroup(0).muscle(0).characteristics().pennationAngle().to_mx()
+        dt = np.linspace(0, 1, q.shape[1])
+        return np.array(
+            casadi.Function(
+                "Muscle_force",
+                [q_mx, qdot_mx, lm_normalized_mx, act_mx, vm_c_normalized_mx],
+                [Muscular_force * casadi.cos(pennationAngle)],
+            )(q, qdot, lm_normalized, get_control(dt, act), get_control(dt, vm_c_normalized))
+        )
+
+    def Tendon_force_dm(self, t0, phases_dt, q: MX, qdot: MX, lm_normalized: MX, act: MX, vm_c_normalized: MX):
+        """
+        Function which is used to plot the value of the tendon force .
+        """
+
+        def get_control(dt_norm, control):
+            if control.shape[1] == 1:
+                return control[:, 0]
+
+            return (control[:, 0] + (control[:, 1] - control[:, 0]) * dt_norm).T
+
+        q_mx = MX.sym("q", self.nb_q, 1)
+        qdot_mx = MX.sym("qdot", self.nb_qdot, 1)
+        lm_normalized_mx = MX.sym("lm", self.nb_muscles, 1)
+        act_mx = MX.sym("act", self.nb_muscles, 1)
+        vm_c_normalized_mx = MX.sym("vm_c", self.nb_muscles, 1)
+
+        _, _, _, Tendon_force = self.Muscles_parameters(q_mx, qdot_mx, lm_normalized_mx, act_mx, vm_c_normalized_mx)
+
+        dt = np.linspace(0, 1, q.shape[1])
+        return np.array(
+            casadi.Function(
+                "Tendon_force", [q_mx, qdot_mx, lm_normalized_mx, act_mx, vm_c_normalized_mx], [Tendon_force]
+            )(q, qdot, lm_normalized, get_control(dt, act), get_control(dt, vm_c_normalized))
+        )
 
     def Forces_calculation(
         self,
@@ -229,6 +323,20 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         lm_normalized: MX,
         vm_normalized: MX,
     ):
+        """
+        Calculation of the value of the muscle force and tendon forces
+        ------------------------------------------------------------------------------------------------
+        Parameters:
+        tendon_length_normalized: value of the tendon length normalized with tendon Slack Length,
+        MaximalForce : maximal isometric force of the muscle,
+        activation : control of the system,
+        lm_normalized : muscle length normalized states of the system,
+        vm_normalized: muscle velocity intern,
+
+        ------------------------------------------------------------------------------------------------
+        Returns Muscle Force, Tendon Force
+
+        """
         return MaximalForce @ (
             self.fpas(lm_normalized)
             + self.fdamp(vm_normalized)
@@ -239,7 +347,7 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         self.check_q_size(q)
         self.check_qdot_size(qdot)
         self.check_muscle_size(activations)
-        jacobian_length, _, Muscular_force, Tendon_force = self.set_muscles_from_q(
+        jacobian_length, _, Muscular_force, Tendon_force = self.Muscles_parameters(
             q, qdot, lm_normalized, activations[0], vm_c_normalized
         )
         tau = -casadi.transpose(jacobian_length) @ Muscular_force
@@ -256,10 +364,25 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         q: MX,
     ):
         """
-        Use of Newton method to calculate vm_normalized. Indeed, lm is a state and the activation is a control,
-        so vm_normalized is the only unknown here. The equation in which the Newton Method is used is the substraction
-        between the Tendon force and the muscle force pennated. The inital guess is the previous vm_normalized
+        Use of Newton method to calculate muscle velocity normalized. Indeed, lm_normalized is a state and the activation
+        is a control, so vm_normalized is the only unknown here.
+        The equation in which the Newton Method is used is the substraction between the Tendon force and the muscle
+        force pennated. The inital guess is the previous vm_normalized.
         calculated.
+        ------------------------------------------------------------------------------------------------
+        Parameters:
+        tendon_length_normalized: value of the tendon length normalized with tendon Slack Length,
+        MaximalForce: maximal isometric force of the muscle,
+        activation,
+        lm_normalized,
+        pennationAngle,
+        activation
+        vm_c_normalized: muscle velocity control which is used as our initial guess here
+
+
+        ------------------------------------------------------------------------------------------------
+        Return muscle velocity normalized intern (Calculated): vm_normalized
+
         """
         from casadi import Function, rootfinder, vertcat, cos
 
@@ -280,7 +403,7 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
             * casadi.cos(pennationAngle)
         )
 
-        g = (Ft - Fm_pen) ** 2
+        g = Ft - Fm_pen
 
         """
         The first variable of the function is the unknown value whereas the others are needed to determine this one. 
@@ -315,28 +438,117 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         q: MX,
     ):
         """
-        To calculate the velocity, we linearize the muscle velocity force around the t-1 value of muscle velocity.
-        After this, we can calculate the coefficient of the linearized equation. Using this coefficient,
-        we can isolate muscle velocity in the differential equation of muscle length.
+        To calculate the muscle velocity intern, we linearize the muscle velocity force around the value of muscle
+        velocity control. After this, we can calculate the coefficient of the linearized equation.
+        Using these coefficient, we can isolate muscle velocity in the differential equation of muscle length.
         y = a * x + b
-        """
 
-        # vm_c_normalized = 0
+
+        ------------------------------------------------------------------------------------------------
+        Parameters:
+        tendon_length_normalized: value of the tendon length normalized with tendon Slack Length,
+        MaximalForce: maximal isometric force of the muscle,
+        activation,
+        lm_normalized,
+        pennationAngle,
+        activation
+        vm_c_normalized: muscle velocity control which is used as our initial guess here
+
+
+        ------------------------------------------------------------------------------------------------
+        Return muscle velocity normalized intern (Calculated): vm_normalized
+        """
         alpha, beta = self.tangent_factor_calculation(vm_c_normalized)
+        # alpha, beta = 2.2, 1 # linearize around 0
         return (
             self.ft(tendon_length_normalized) / casadi.cos(pennationAngle)
             - self.fpas(lm_normalized)
             - beta * activation[0] @ self.fact(lm_normalized)
         ) / (alpha * activation[0] @ self.fact(lm_normalized) + damp)
 
-    def set_muscles_from_q(self, q, qdot, lm_normalized, activation, vm_c_normalized):
+    def Muscle_Jacobian(
+        self,
+        q: MX,
+        qdot: MX,
+    ):
+        """
+        Compute the Jacobian of the muscle
+        """
+        return self.model.musclesLengthJacobian(self.model, q, False).to_mx()
+
+    def vm_calculation(
+        self,
+        lm_normalized: MX,
+        tendon_length_normalized: MX,
+        pennationAngle: MX,
+        MaximalForce: MX,
+        activation: MX,
+        vm_c_normalized: MX,
+        q: MX,
+        qdot: MX,
+    ):
+        """
+        Choice of the method to calculate muscle velocity intern.
+        """
+        if Method_VM_Calculation.method_used_vm == Method_VM_Calculation.DAMPING_NEWTON:
+            return self.vm_normalized_calculation_newton(
+                lm_normalized=lm_normalized,
+                tendon_length_normalized=tendon_length_normalized,
+                pennationAngle=pennationAngle,
+                MaximalForce=MaximalForce,
+                activation=activation,
+                vm_c_normalized=vm_c_normalized,
+                q=q,
+            )
+
+        elif Method_VM_Calculation.method_used_vm == Method_VM_Calculation.DAMPING_LINEAR:
+            return self.vm_normalized_calculation_linear(
+                lm_normalized=lm_normalized,
+                tendon_length_normalized=tendon_length_normalized,
+                pennationAngle=pennationAngle,
+                MaximalForce=MaximalForce,
+                activation=activation,
+                vm_c_normalized=vm_c_normalized,
+                q=q,
+            )
+        elif Method_VM_Calculation.method_used_vm == Method_VM_Calculation.WTHOUT_DAMPING:
+            return self.vm_normalized_calculation_without_damping(
+                lm_normalized=lm_normalized,
+                tendon_length_normalized=tendon_length_normalized,
+                pennationAngle=pennationAngle,
+                MaximalForce=MaximalForce,
+                activation=activation,
+                vm_c_normalized=vm_c_normalized,
+                q=q,
+            )
+        else:
+            raise ValueError("Method of calculation doesn't exist.")
+
+    def Muscles_parameters(
+        self,
+        q: MX,
+        qdot: MX,
+        lm_normalized: MX,
+        activation: MX,
+        vm_c_normalized: MX,
+    ):
+        """
+        Calculation of the muscle characteristics.
+        First we compute the Jacobian.
+        Secondly, we read the characteristics of muscles and then compute the muscle forces and muscle velocity intern.
+        ------------------------------------------------------------------------------------------------
+        Parameters:
+        states,
+        controls,
+        ------------------------------------------------------------------------------------------------
+        Return Muscle Jacobian, Muscle forces, and muscle velocities intern (Calculated)
+        """
         m = self.model
-        # data = MX(m.nbMuscles(), 1)
         Muscular_force = []
         Tendon_force = []
         updated_kinematic_model = m.UpdateKinematicsCustom(q, qdot)
         m.updateMuscles(updated_kinematic_model, q, qdot)
-        length_jacobian = m.musclesLengthJacobian(m, q, False).to_mx()
+        length_jacobian = self.Muscle_Jacobian(q=q, qdot=qdot)
         for group_idx in range(m.nbMuscleGroups()):
             for muscle_idx in range(m.muscleGroup(group_idx).nbMuscles()):
 
@@ -354,10 +566,7 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
                 tendon_length_normalized = (
                     musculoTendonLength - lm_normalized * optimalLength * casadi.cos(pennationAngle)
                 ) / tendonSlackLength
-
-                # vm_normalized = self.vm_normalized_calculation_without_damping(
-                # vm_normalized = self.vm_normalized_calculation_linear(
-                vm_normalized = self.vm_normalized_calculation_newton(
+                vm_normalized = self.vm_calculation(
                     lm_normalized=lm_normalized,
                     tendon_length_normalized=tendon_length_normalized,
                     pennationAngle=pennationAngle,
@@ -365,6 +574,7 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
                     activation=activation,
                     vm_c_normalized=vm_c_normalized,
                     q=q,
+                    qdot=qdot,
                 )
                 Muscular_force_current, Tendon_force_current = self.Forces_calculation(
                     tendon_length_normalized=tendon_length_normalized,
@@ -375,8 +585,4 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
                 )
                 Muscular_force = vertcat(Muscular_force, Muscular_force_current)
                 Tendon_force = vertcat(Tendon_force, Tendon_force_current)
-                """If there are Via point : """
-                # for k, pts in enumerate(musc.position().pointsInGlobal()):
-                #     data.append(pts.to_mx())
-
         return length_jacobian, vm_normalized, Muscular_force, Tendon_force

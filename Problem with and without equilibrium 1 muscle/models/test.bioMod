@@ -10,16 +10,14 @@ endsegment
 segment Seg1
     parent Global
     translations z
+    ranges
+        -1 1
     RTinMatrix 1
     RT 
         1 0 0 0
         0 1 0 0
-        0 0 1 -0.3
+        0 0 1 -0.25
         0 0 0 1
-    
-    
-    ranges
-        -.5 .5
     mass 10
 
     mesh -0.15 -0.15 0
@@ -53,22 +51,22 @@ endsegment
 
 
 // MUSCLE DEFINITION
-    // Trilong
+    // Custom Muscle with a long tendon
 
 musclegroup musclegroup1
     OriginParent        Global
     InsertionParent        Seg1
 endmusclegroup
 
-    muscle    TRIlong
+    muscle    Example
         Type    degroote
         musclegroup    musclegroup1
         OriginPosition    0 0 0
         InsertionPosition    0 0 0
-        optimalLength   0.13400
+        optimalLength   0.10
         maximalForce    798.520
-        tendonSlackLength    0.14300
-        pennationAngle    0.2094
+        tendonSlackLength    0.16
+        pennationAngle   0 // 0.2094
         maxVelocity    5
     endmuscle
 
