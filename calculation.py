@@ -33,20 +33,18 @@ tendon_slack_length = 0.09  # tendon slack length
 
 maximalIsometricForce = 624.300
 pennation = 0.000
-activation = 1  # Muscle Activation
+activation = 0.3  # Muscle Activation
 
 
 # Velocity
 
 musculotendon_velocity = 0.007027430619001448
 
-"""Doc Millard for velocity max : https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3705831/pdf/bio_135_2_021005.pdf"""
 muscle_velocity_max = 5.32 * optimal_fiber_length
 tendon_velocity_guess = musculotendon_velocity * 0.5
 muscle_velocity_guess = (musculotendon_velocity - tendon_velocity_guess) * np.cos(pennation)
 
 
-"""Supplementary materials Doc de Groote : https://static-content.springer.com/esm/art%3A10.1007%2Fs10439-016-1591-9/MediaObjects/10439_2016_1591_MOESM1_ESM.pdf"""
 # ft(lt) parameters
 c1 = 0.2
 c2 = 0.995
@@ -84,14 +82,6 @@ d4 = 0.886
 # Parameters for damping
 damp = 0.1  # By default it values is 0.1
 
-IPOPT_output = []
-nb_iter = 0
-
-iterations = []
-
-
-nb_iteration_integral = 10000
-
 
 # Force passive definition = fpce
 # Warning modification of the equation du to sign issue when muscle_length_normalized is under 1
@@ -123,12 +113,12 @@ def ft(tendon_length_normalized):
 
 
 # Definition tendon Force (Ft) with the 3rd equation of De Groote : Ft = maximalIsometricForce * ft(tendon_length)
-def calculation_tendonforce_3rd_equation(tendon_length_normalized):
+def calculation_tendon_force(tendon_length_normalized):
     return maximalIsometricForce * ft(tendon_length_normalized)
 
 
 # Definition Ft with the 7th equation of De Groote : Ft = Fm * cos(pennation)
-def calculation_tendonforce_7th_equation(muscle_length_normalized, muscle_velocity_normalized):
+def calculation_muscle_force(muscle_length_normalized, muscle_velocity_normalized):
     Fm = maximalIsometricForce * (
         fpas(muscle_length_normalized) + activation * fvm(muscle_velocity_normalized) * fact(muscle_length_normalized)
     )
@@ -144,16 +134,9 @@ def fvm_inverse(muscle_length_normalized, tendon_length_normalized):
 
 # Calculation of tendon force obtained with the 3rd equation minus tendon force obtained with the 4th equation
 def verification_equal_Ft(tendon_length_normalized, muscle_length_normalized, muscle_velocity_normalized):
-    return calculation_tendonforce_3rd_equation(tendon_length_normalized) - calculation_tendonforce_7th_equation(
+    return calculation_tendon_force(tendon_length_normalized) - calculation_muscle_force(
         muscle_length_normalized, muscle_velocity_normalized
     )
-
-
-"""
-Damped version : Millard and Nabipour Paper 
-Nabipour : https://www.biorxiv.org/content/10.1101/2024.05.14.594110v1.full.pdf
-Millard : https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3705831/pdf/bio_135_2_021005.pdf
-"""
 
 
 # Muscle force velocity equation = fvce
@@ -201,9 +184,9 @@ def velocity_calculation_damped_linear(muscle_length_normalized, tendon_length_n
 
 # Calculation of tendon force obtained with the 3rd equation minus tendon force obtained with the 4th equation
 def verification_equal_Ft_damped(tendon_length_normalized, muscle_length_normalized, muscle_velocity_normalized):
-    return calculation_tendonforce_3rd_equation(
-        tendon_length_normalized
-    ) - calculation_tendonforce_7th_equation_damped_linear(muscle_length_normalized, muscle_velocity_normalized)
+    return calculation_tendon_force(tendon_length_normalized) - calculation_tendonforce_7th_equation_damped_linear(
+        muscle_length_normalized, muscle_velocity_normalized
+    )
 
 
 def tangent_factor_calculation(point):
@@ -269,6 +252,8 @@ def f(t, y, method):
         return func_muscle_velocity(t, y)
     elif method == "None_damp":
         return func_muscle_velocity_without_damp(t, y)
+    elif method == "None_damp_newton":
+        return func_muscle_velocity_without_damp_newton(t, y)
 
 
 # Calculation tendon, muscle lengths and tendon,muscle velocities with IPOPT
@@ -328,10 +313,8 @@ def calcul_longueurs():
 
     sol = solver(x0=x0, ubx=ubx, lbx=lbx, ubg=0, lbg=0)
 
-    Tendon_force_1 = calculation_tendonforce_3rd_equation(sol["x"][1] / tendon_slack_length)
-    Tendon_force_2 = calculation_tendonforce_7th_equation(
-        sol["x"][0] / optimal_fiber_length, sol["x"][2] / muscle_velocity_max
-    )
+    Tendon_force_1 = calculation_tendon_force(sol["x"][1] / tendon_slack_length)
+    Tendon_force_2 = calculation_muscle_force(sol["x"][0] / optimal_fiber_length, sol["x"][2] / muscle_velocity_max)
     diff = verification_equal_Ft(
         sol["x"][1] / tendon_slack_length, sol["x"][0] / optimal_fiber_length, sol["x"][2] / muscle_velocity_max
     )
@@ -353,115 +336,11 @@ def calcul_longueurs():
     return float(Tendon_force_1)
 
 
-def func_obj_minimize(x):
-    return (
-        1000
-        * (
-            (
-                verification_equal_Ft(
-                    x[1] / tendon_slack_length,
-                    x[0] / optimal_fiber_length,
-                    x[2] / muscle_velocity_max,
-                )
-            )
-            ** 2
-            + (musculotendon_length - (x[1] + x[0] * np.cos(pennation))) ** 2
-        )
-        + (
-            x[2]
-            - (
-                (
-                    -d3 / d2
-                    + (1 / d2)
-                    * np.sinh((1 / d1) * (fvm_inverse(x[0] / optimal_fiber_length, x[1] / tendon_slack_length) - d4))
-                )
-                * muscle_velocity_max
-            )
-        )
-        ** 2
-        + (musculotendon_velocity - (x[3] + (x[2] / np.cos(pennation)))) ** 2
-    )
-
-
-cpt = 0
-
-
-def callback(x):
-    global cpt
-    global iterations
-    iterations.append(x)
-    cpt += 1
-
-
-def minimize_func():
-    x0 = [optimal_fiber_length, tendon_slack_length, muscle_velocity_guess, tendon_velocity_guess]
-
-    lbx = [
-        optimal_fiber_length * 0.5,
-        tendon_slack_length,
-        -1e-4,  # -muscle_velocity_max,
-        (musculotendon_length - muscle_velocity_max / np.cos(pennation)),
-    ]
-    ubx = [
-        optimal_fiber_length * 1.5,
-        tendon_slack_length * 1.05,
-        1e-4,  # muscle_velocity_max,
-        (musculotendon_length + muscle_velocity_max / np.cos(pennation)),
-    ]
-
-    bounds = ((lbx[0], ubx[0]), (lbx[1], ubx[1]), (lbx[2], ubx[2]), (lbx[3], ubx[3]))
-    options_powell = {"maxiter": 1000, "xtol": 1e-8, "ftol": 1e-8}
-    options_nelder = {"maxiter": 50000, "xatol": 1e-8, "fatol": 1e-8}
-    sol = minimize(func_obj_minimize, x0=x0, method="Powell", callback=callback, options=options_powell, bounds=bounds)
-
-    while cpt < 10000:
-        sol = minimize(
-            func_obj_minimize,
-            x0=sol["x"],
-            method="Nelder-Mead",
-            callback=callback,
-            options=options_nelder,
-            bounds=bounds,
-        )
-
-    print(
-        "Muscle length:",
-        sol["x"][0],
-        "Tendon length:",
-        sol["x"][1],
-        "Muscle velocity:",
-        sol["x"][2],
-        "Tendon velocity:",
-        sol["x"][3],
-        "\nDiffs:",
-        verification_equal_Ft(
-            sol["x"][1] / tendon_slack_length,
-            sol["x"][0] / optimal_fiber_length,
-            sol["x"][2] / muscle_velocity_max,
-        ),
-        musculotendon_velocity,
-        (sol["x"][3] + sol["x"][2] / np.cos(pennation)),
-        musculotendon_length,
-        (sol["x"][1] + sol["x"][0] * np.cos(pennation)),
-        "\nTendon Force calculation:",
-        calculation_tendonforce_3rd_equation(sol["x"][1] / tendon_slack_length),
-        calculation_tendonforce_7th_equation(sol["x"][0] / optimal_fiber_length, sol["x"][2] / muscle_velocity_max),
-        "\nRapports:",
-        sol["x"][0] / optimal_fiber_length,
-        sol["x"][1] / tendon_slack_length,
-        sol["x"][2] / muscle_velocity_max,
-        sol["x"][3] / tendon_slack_length,
-        "\nObj Func value:",
-        func_obj_minimize(sol["x"]),
-    )
-
-    return float(calculation_tendonforce_3rd_equation(sol["x"][1] / tendon_slack_length))
-
-
 """
 Integral method with and without damping
 """
 temp = 0
+temp2 = 1e-8
 
 
 def velocity_calculation_damped_newton(muscle_length_normalized, tendon_length_normalized):
@@ -478,6 +357,24 @@ def velocity_calculation_damped_newton(muscle_length_normalized, tendon_length_n
         tol=1e-8,
         rtol=1e-8,
     )
+
+
+def velocity_calculation_without_damp_newton(muscle_length_normalized, tendon_length_normalized):
+    global temp2
+    try:
+        value = newton(
+            lambda muscle_velocity_initial: fvm(muscle_velocity_initial / muscle_velocity_max)
+            * activation
+            * fact(muscle_length_normalized)
+            + fpas(muscle_length_normalized)
+            - (ft(tendon_length_normalized) / np.cos(pennation)),
+            temp2,
+            tol=1e-8,
+            rtol=1e-8,
+        )
+        return value
+    except:
+        return -1
 
 
 def func_muscle_velocity_newton(t, y):
@@ -514,6 +411,15 @@ def func_muscle_velocity_without_damp(t, y):
     ) * muscle_velocity_max
 
 
+def func_muscle_velocity_without_damp_newton(t, y):
+    return (
+        velocity_calculation_without_damp_newton(
+            y / optimal_fiber_length, (musculotendon_length - y * np.cos(pennation)) / tendon_slack_length
+        )
+        * muscle_velocity_max
+    )
+
+
 def integral_method_with_damp_linear():
 
     x0 = (musculotendon_length - tendon_slack_length) / np.cos(pennation)
@@ -528,9 +434,9 @@ def integral_method_with_damp_linear():
     )
     print(
         "\nTendon Force:",
-        calculation_tendonforce_3rd_equation(x[1] / tendon_slack_length),
+        calculation_tendon_force(x[1] / tendon_slack_length),
         "\nMuscle Forcfe:",
-        calculation_tendonforce_7th_equation(x[0] / optimal_fiber_length, x[2][-1] / muscle_velocity_max),
+        calculation_muscle_force(x[0] / optimal_fiber_length, x[2][-1] / muscle_velocity_max),
         "\nMuscle Length:",
         x[0],
         "\nTendon Length:",
@@ -540,7 +446,7 @@ def integral_method_with_damp_linear():
         "\nMusculoTendon Length Real:",
         musculotendon_length,
     )
-    return tab, calculation_tendonforce_3rd_equation(x[1] / tendon_slack_length)
+    return tab, calculation_tendon_force(x[1] / tendon_slack_length)
 
 
 def integral_method_without_damp():
@@ -560,9 +466,9 @@ def integral_method_without_damp():
     ) * muscle_velocity_max
     print(
         "\nTendon Force:",
-        calculation_tendonforce_3rd_equation(x[1] / tendon_slack_length),
+        calculation_tendon_force(x[1] / tendon_slack_length),
         "\nMuscle Forcfe:",
-        calculation_tendonforce_7th_equation(x[0] / optimal_fiber_length, x[2] / muscle_velocity_max),
+        calculation_muscle_force(x[0] / optimal_fiber_length, x[2] / muscle_velocity_max),
         "\nMuscle Length:",
         x[0],
         "\nTendon Length:",
@@ -572,7 +478,42 @@ def integral_method_without_damp():
         "\nMusculoTendon Length Real:",
         musculotendon_length,
     )
-    return tab, calculation_tendonforce_3rd_equation(x[1] / tendon_slack_length)
+    return tab, calculation_tendon_force(x[1] / tendon_slack_length)
+
+
+def integral_method_without_damp_newton():
+    global temp2
+    x0 = (musculotendon_length - tendon_slack_length) / np.cos(pennation)
+    x = [x0, 0, 0]
+    temp = x[2]
+    tab = RK4_integral(
+        0, x[0], 1e-3, 10000, "None_damp_newton"
+    )  # 2200 pour une erreur < 1%, 6500 pour que tout converge 2500
+    x[0] = tab[1][-1]
+    x[1] = tab[2][-1]
+    x[2] = newton(
+        lambda y: fvm(y / muscle_velocity_max) * activation * fact(x[0] / optimal_fiber_length)
+        + fpas(x[0] / optimal_fiber_length)
+        - (ft(x[1] / tendon_slack_length) / np.cos(pennation)),
+        temp2,
+        tol=1e-8,
+        rtol=1e-8,
+    )
+    print(
+        "\nTendon Force:",
+        calculation_tendon_force(x[1] / tendon_slack_length),
+        "\nMuscle Forcfe:",
+        calculation_muscle_force(x[0] / optimal_fiber_length, x[2] / muscle_velocity_max),
+        "\nMuscle Length:",
+        x[0],
+        "\nTendon Length:",
+        x[1],
+        "\nMusculoTendon Length Calculated:",
+        x[1] + x[0] * np.cos(pennation),
+        "\nMusculoTendon Length Real:",
+        musculotendon_length,
+    )
+    return tab, calculation_tendon_force(x[1] / tendon_slack_length)
 
 
 def integral_method_with_damp_newton():
@@ -599,9 +540,9 @@ def integral_method_with_damp_newton():
     )
     print(
         "\nTendon Force:",
-        calculation_tendonforce_3rd_equation(x[1] / tendon_slack_length),
+        calculation_tendon_force(x[1] / tendon_slack_length),
         "\nMuscle Forcfe:",
-        calculation_tendonforce_7th_equation(x[0] / optimal_fiber_length, x[2] / muscle_velocity_max),
+        calculation_muscle_force(x[0] / optimal_fiber_length, x[2] / muscle_velocity_max),
         "\nMuscle Length:",
         x[0],
         "\nTendon Length:",
@@ -611,7 +552,7 @@ def integral_method_with_damp_newton():
         "\nMusculoTendon Length Real:",
         musculotendon_length,
     )
-    return tab, calculation_tendonforce_3rd_equation(x[1] / tendon_slack_length)
+    return tab, calculation_tendon_force(x[1] / tendon_slack_length)
 
 
 def main():
@@ -623,8 +564,6 @@ def main():
     global pennation
     global musculotendon_length
     global musculotendon_velocity
-
-    calcul_longueurs()
 
     Muscle = [
         {
@@ -716,24 +655,7 @@ def main():
     indice = 3
     legend = False
 
-    """optimal_fiber_length = Muscle[indice]["optimalLength"]
-    tendon_slack_length = Muscle[indice]["tendonSlackLength"]
-    musculotendon_length = Muscle[indice]["musculotendonLength"]
-    musculotendon_velocity = Muscle[indice]["musculotendonVelocity"]
-    maximalIsometricForce = Muscle[indice]["maximalForce"]
-    pennation = Muscle[indice]["pennationAngle"]
-    activation = 1
-
-    for i in range(1, 11):
-        activation = i * 1e-1
-        current_benchmark = calcul_longueurs()
-        current_without_damp = integral_method_without_damp()
-        current_damp_linear = integral_method_with_damp_linear()
-        current_damp_newton = integral_method_with_damp_newton()
-"""
     fig, axs = plt.subplots(5, 2, figsize=(15, 10), layout="constrained")
-    # calcul_longueurs()
-    # integral_method_with_damp_newton()
 
     """To plot the length of the muscle and tendon"""
     """    
@@ -883,7 +805,7 @@ def main():
             muscle_name += [muscle_current]
 
             current_benchmark = calcul_longueurs()
-            current_without_damp = integral_method_without_damp()
+            current_without_damp = integral_method_without_damp_newton()
             current_damp_linear = integral_method_with_damp_linear()
             current_damp_newton = integral_method_with_damp_newton()
 
