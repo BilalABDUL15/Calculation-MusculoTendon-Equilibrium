@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from backup_def_ import *
+from definition_func_class import *
 
 
 def read_doc(fichier_name: str):

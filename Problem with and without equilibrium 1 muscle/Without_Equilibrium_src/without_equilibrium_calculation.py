@@ -2,7 +2,7 @@ from definition_func_class_without_equilibrium import *
 import platform
 
 
-from ....bioptim.bioptim import CostType
+from bioptim import CostType
 import numpy as np
 import matplotlib.pyplot as plt
 

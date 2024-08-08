@@ -460,6 +460,7 @@ class BiorbdModel_musculotendon_equilibrium(BiorbdModel):
         """
         alpha, beta = self.tangent_factor_calculation(vm_c_normalized)
         # alpha, beta = 2.2, 1 # linearize around 0
+        alpha, beta = 1, 1
         return (
             self.ft(tendon_length_normalized) / casadi.cos(pennationAngle)
             - self.fpas(lm_normalized)
