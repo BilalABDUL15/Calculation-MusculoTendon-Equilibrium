@@ -2,6 +2,13 @@
 
 This repository provides two methods for calculating musculotendon equilibrium using a simple optimal control problem with **Bioptim**. These methods are applied to a problem where an object with mass is attached to a muscle and needs to be moved either upward or downward, causing the muscle to contract or stretch.
 
+<p>
+  <img src="https://i2.wp.com/youngmok.com/wp-content/uploads/2013/11/hill_type_muscle_model.png?w=425" alt="Hill Model">
+</p>
+
+
+
+
 The equilibrium is calculated using De Groote's and Millard's equations. The model includes a musculotendon system with slight damping.
 
 **States**: x includes joint position q, joint velocity $dot{q}$ , and normalized muscle length $\tilde{\ell_M}$.
@@ -63,7 +70,12 @@ Then we have
 We can then integrate this equation and obtain the value of our state $\tilde{\ell_M}$.
 
 ## Model 
-![Biomod cube](https://github.com/BilalABDUL15/Calculation-MusculoTendon-Equilibrium/blob/main/images/cube_1_%20muscle.png)
+
+
+
+<p>
+  <img src="https://github.com/BilalABDUL15/Calculation-MusculoTendon-Equilibrium/raw/main/images/cube_1_%20muscle.png" alt="Image du cube musculaire">
+</p>
 
 
 ### Source Article:
