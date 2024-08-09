@@ -62,6 +62,9 @@ Then we have
 
 We can then integrate this equation and obtain the value of our state $\tilde{\ell_M}$.
 
+## Model 
+![Biomod cube](https://github.com/BilalABDUL15/Calculation-MusculoTendon-Equilibrium/blob/main/images/cube_1_%20muscle.png)
+
 
 ### Source Article:
 Millard's article : https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3705831/pdf/bio_135_2_021005.pdf
