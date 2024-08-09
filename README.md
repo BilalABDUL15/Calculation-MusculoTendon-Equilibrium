@@ -74,7 +74,7 @@ We can then integrate this equation and obtain the value of our state $\tilde{\e
 
 
 
-<p style="text-align: center;">
+<p align= center>
   <img src="https://github.com/BilalABDUL15/Calculation-MusculoTendon-Equilibrium/raw/main/images/cube_1_%20muscle.png" alt="Image du cube musculaire">
 </p>
 
