@@ -2,9 +2,11 @@
 
 This repository provides two methods for calculating musculotendon equilibrium using a simple optimal control problem with **Bioptim**. These methods are applied to a problem where an object with mass is attached to a muscle and needs to be moved either upward or downward, causing the muscle to contract or stretch.
 
- <p >
-        <img class="center-img" src="https://i2.wp.com/youngmok.com/wp-content/uploads/2013/11/hill_type_muscle_model.png?w=425" alt="Hill Model" style="text-align: center;">
-    </p>
+<div style="text-align: center;">
+    <img src="https://i2.wp.com/youngmok.com/wp-content/uploads/2013/11/hill_type_muscle_model.png?w=425" alt="Hill Model">
+</div>
+
+
 
 
 
