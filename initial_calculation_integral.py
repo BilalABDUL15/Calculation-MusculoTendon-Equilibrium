@@ -1,10 +1,6 @@
-from typing import Callable
 import casadi
 import numpy as np
-from shoulder import ModelBiorbd, ControlsTypes, MuscleParameter
-import timeit
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize
 from scipy.optimize import newton
 
 

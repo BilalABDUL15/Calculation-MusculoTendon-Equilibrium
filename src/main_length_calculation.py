@@ -80,7 +80,7 @@ def main():
         Collocation=False,
         q0_init=-0.22,
         q0_final=-0.31,
-        Method_VM_Calculation_value=Method_VM_Calculation.DAMPING_LINEAR,
+        #Method_VM_Calculation_value=Method_VM_Calculation.DAMPING_LINEAR,
     )
 
     comparaison_resultats.main()
