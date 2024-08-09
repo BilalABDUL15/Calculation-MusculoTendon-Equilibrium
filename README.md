@@ -78,6 +78,7 @@ We can then integrate this equation and obtain the value of our state $\tilde{\e
   <img src="https://github.com/BilalABDUL15/Calculation-MusculoTendon-Equilibrium/raw/main/images/cube_1_%20muscle.png" alt="Image du cube musculaire">
 </p>
 
+The goal is to make the object move upward or downward and determine if the rigid tendon model produces different results compared to the non-rigid tendon model, where one adheres to the musculotendon equilibrium and the other does not.
 
 ### Source Article:
 Millard's article : https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3705831/pdf/bio_135_2_021005.pdf
